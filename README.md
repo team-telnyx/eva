@@ -175,15 +175,15 @@ pytest tests/integration/test_metrics.py -v
 
 Existing benchmarks evaluate voice agent components in isolation — speech understanding, TTS quality, or conversational dynamics — but none assess the full pipeline end to end. In real deployed systems, errors compound across modules and failure modes interact in ways that component-level evaluation cannot capture. EVA addresses this by treating voice agent quality as an integrated whole, evaluating accuracy and experience jointly across complete multi-turn spoken conversations.
 
-| **Framework** | **Interaction Mode** | **Multi-turn** | **Tool Calling** | **Goal Completion** | **Experience Metrics** | **Pass@k, Pass^k** | **Supported Systems** |
+| **Framework** | **Interaction Mode** | **Multi-turn** | **Tool Calling** | **Goal Completion** | **Experience Metrics** | **Pass@k<br>Pass^k** | **Supported Systems** |
 |---|---|---|---|---|---|--------------------|---|
-| **EVA** | Live bot-to-bot | ✅ | ✅ | ✅ (Task Completion, Speech Fidelity, Faithfulness) | ✅ (Conciseness, Turn-taking, Latency, Progression) | ✅                  | Audio-native, Cascade |
+| **EVA** | Live bot-to-bot | ✅ | ✅ | ✅ <br>Task Completion, Speech Fidelity, Faithfulness | ✅ <br>Conciseness, Turn-taking, Latency, Progression | ✅                  | Audio-native, Cascade |
 | **VoiceAgent&shy;Bench** | Static, TTS-synthesized | ✅ | ✅ | ⚠️ | ❌ | ❌                  | Audio-native, Cascade |
-| **CAVA** | Partial simulation | ✅ | ✅ | ⚠️ | ⚠️ (Latency, Tone-awareness) | ❌                  | Audio-native, Cascade |
-| **FDB-v2** | Live, automated examiner | ✅ | ❌ | ❌ | ✅ (Turn-taking fluency, Correction handling, Safety) | ❌                  | Audio-native |
-| **FDB-v1** | Static, pre-recorded | ❌ | ❌ | ❌ | ✅ (Turn-taking, Backchanneling, Interruption) | ❌                  | Audio-native |
-| **FD-Bench** | Live, simulated | ❌ | ❌ | ❌ | ✅ (Interruption, Delay, Robustness) | ❌                  | Audio-native |
-| **Talking Turns** | Static, curated | ❌ | ❌ | ❌ | ✅ (Turn change, Backchannel, Interruption) | ❌                  | Audio-native, Cascade |
+| **CAVA** | Partial simulation | ✅ | ✅ | ⚠️ | ⚠️ <br>Latency, Tone-awareness | ❌                  | Audio-native, Cascade |
+| **FDB-v2** | Live, automated examiner | ✅ | ❌ | ❌ | ✅ <br>Turn-taking fluency, Correction handling, Safety | ❌                  | Audio-native |
+| **FDB-v1** | Static, pre-recorded | ❌ | ❌ | ❌ | ✅ <br>Turn-taking, Backchanneling, Interruption | ❌                  | Audio-native |
+| **FD-Bench** | Live, simulated | ❌ | ❌ | ❌ | ✅ <br>Interruption, Delay, Robustness | ❌                  | Audio-native |
+| **Talking Turns** | Static, curated | ❌ | ❌ | ❌ | ✅ <br>Turn change, Backchannel, Interruption | ❌                  | Audio-native, Cascade |
 
 ## 🏗️ Architecture
 
@@ -253,6 +253,7 @@ eva/
 ├── compose.yaml               # Docker Compose configuration
 ├── src/eva/
 │   ├── cli.py                 # CLI interface
+│   ├── run_benchmark.py       # Benchmark runner
 │   ├── models/                # Pydantic data models
 │   ├── orchestrator/          # Framework execution
 │   │   ├── runner.py          # Main orchestrator
@@ -277,7 +278,6 @@ eva/
 │   │   └── validation/        # Quality control metrics
 │   └── utils/                 # Utilities (LLM client, log processing)
 ├── scripts/                   # Utility scripts
-│   ├── run_benchmark.py       # Benchmark runner
 │   ├── run_text_only.py       # Text-only evaluation runner
 │   ├── docker_entrypoint.py   # Docker entry point
 │   ├── check_version_bump.py  # Version checking
