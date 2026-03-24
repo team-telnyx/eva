@@ -1,4 +1,5 @@
-import { Sun, Moon } from 'lucide-react';
+import { useState } from 'react';
+import { Sun, Moon, Menu, X } from 'lucide-react';
 import type { TabId } from '../../App';
 import type { ThemeMode } from '../../styles/theme';
 
@@ -20,11 +21,28 @@ interface NavbarProps {
 }
 
 export function Navbar({ activeTab, onTabChange, theme, onToggleTheme }: NavbarProps) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const handleTabChange = (tab: TabId) => {
+    onTabChange(tab);
+    setMobileMenuOpen(false);
+  };
+
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-bg-primary/80 backdrop-blur-xl border-b border-border-default">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          <div className="w-0" />
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="sm:hidden w-9 h-9 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+            aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+          >
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+          {/* Spacer for desktop */}
+          <div className="hidden sm:block w-0" />
+          {/* Desktop navigation */}
           <div className="hidden sm:flex items-center gap-4">
             {tabs.map(t => (
               <a
@@ -50,6 +68,27 @@ export function Navbar({ activeTab, onTabChange, theme, onToggleTheme }: NavbarP
           </button>
         </div>
       </div>
+      {/* Mobile menu dropdown */}
+      {mobileMenuOpen && (
+        <div className="sm:hidden border-t border-border-default bg-bg-primary/95 backdrop-blur-xl">
+          <div className="px-4 py-3 space-y-1">
+            {tabs.map(t => (
+              <a
+                key={t.id}
+                href={`#${t.id}`}
+                onClick={(e) => { e.preventDefault(); handleTabChange(t.id); }}
+                className={`block px-4 py-3 rounded-lg text-base font-semibold transition-colors no-underline ${
+                  activeTab === t.id
+                    ? 'text-purple-light bg-purple/15 border border-purple/30'
+                    : 'text-text-primary/80 hover:text-text-primary hover:bg-bg-hover border border-transparent'
+                }`}
+              >
+                {t.label}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </nav>
   );
 }
