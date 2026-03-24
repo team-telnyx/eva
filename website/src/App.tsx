@@ -10,10 +10,10 @@ import { ConversationDemo } from './components/conversation/ConversationDemo';
 import { LimitationsSection } from './components/limitations/LimitationsSection';
 import { ThemeContext, themeColors, type ThemeMode } from './styles/theme';
 
-export type TabId = 'intro' | 'architecture' | 'metrics' | 'leaderboard-oss' | 'demo' | 'limitations' | 'acknowledgements';
+export type TabId = 'intro' | 'architecture' | 'metrics' | 'early-results' | 'demo' | 'limitations' | 'acknowledgements';
 
 const validTabs: Set<string> = new Set<TabId>([
-  'intro', 'architecture', 'metrics', 'leaderboard-oss', 'demo', 'limitations', 'acknowledgements',
+  'intro', 'architecture', 'metrics', 'early-results', 'demo', 'limitations', 'acknowledgements',
 ]);
 
 function getTabFromHash(): TabId {
@@ -69,7 +69,7 @@ function App() {
           {activeTab === 'intro' && <Hero />}
           {activeTab === 'architecture' && <ArchitectureDiagram />}
           {activeTab === 'metrics' && <MetricsExplorer />}
-          {activeTab === 'leaderboard-oss' && <LeaderboardSection />}
+          {activeTab === 'early-results' && <LeaderboardSection />}
           {activeTab === 'demo' && <ConversationDemo />}
           {activeTab === 'limitations' && <LimitationsSection />}
           {activeTab === 'acknowledgements' && <AcknowledgementsSection />}

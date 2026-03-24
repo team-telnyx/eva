@@ -3,7 +3,6 @@ import { Section } from '../layout/Section';
 import { ScatterPlot } from './ScatterPlot';
 import { MetricHeatmap } from './MetricHeatmap';
 import type { AggregateColumn } from './MetricHeatmap';
-import { TurnTakingAnalysis } from './TurnTakingAnalysis';
 import {
   ossSystems,
   accuracyMetricKeys, experienceMetricKeys,
@@ -18,7 +17,7 @@ const ossKeyInsights = [
   },
   {
     title: 'Turn taking remains a key challenge',
-    description: 'Effective turn taking remains a key challenge for cascade systems \u2014 most turns are late (>4 seconds). See the turn taking analysis below.',
+    description: 'Effective turn taking remains a key challenge for cascade systems \u2014 most turns are late (>4 seconds).',
   },
   {
     title: 'Speech synthesis struggles with alphanumeric codes',
@@ -133,8 +132,6 @@ export function LeaderboardSection() {
             ))}
           </div>
         </div>
-
-        <TurnTakingAnalysis systems={systems} />
 
       </div>
     </Section>
