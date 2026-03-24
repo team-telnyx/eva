@@ -327,9 +327,11 @@ class AssistantServer:
                 )  # Shorter silence so we don't have to wait 3s if smart turn marks audio as incomplete
 
             if isinstance(self.pipeline_config, PipelineConfig) and self.pipeline_config.turn_strategy == "external":
+                logger.info("Using external user turn strategies")
                 user_turn_strategies = ExternalUserTurnStrategies()
                 vad_analyzer = None
             else:
+                logger.info(f"Using local smart turn analyzer")
                 user_turn_strategies = UserTurnStrategies(
                     start=[VADUserTurnStartStrategy()],
                     stop=[

@@ -125,6 +125,7 @@ _PIPELINE_FIELDS = {
     "tts",
     "stt_params",
     "tts_params",
+    "turn_strategy",
     *PipelineConfig._LEGACY_RENAMES,
     *PipelineConfig._LEGACY_DROP,
 }
