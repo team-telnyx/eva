@@ -72,7 +72,7 @@ logger = get_logger(__name__)
 # Audio/VAD constants
 SAMPLE_RATE = 24000
 VAD_STOP_SECS = 0.2  # How long silence must be detected before triggering stop (pipecat default: 0.2)
-SMART_TURN_STOP_SECS = 3
+SMART_TURN_STOP_SECS = 3  # Default from SmartTurnParams
 # Pre-speech audio buffer - captures audio BEFORE VAD fires to avoid cutting off speech start.
 # Should be larger than pipecat's VAD start_secs (0.2s) to account for VAD latency.
 VAD_PRE_SPEECH_BUFFER_SECS = 0.5
@@ -327,9 +327,11 @@ class AssistantServer:
                 )  # Shorter silence so we don't have to wait 3s if smart turn marks audio as incomplete
 
             if isinstance(self.pipeline_config, PipelineConfig) and self.pipeline_config.turn_strategy == "external":
+                logger.info("Using external user turn strategies")
                 user_turn_strategies = ExternalUserTurnStrategies()
                 vad_analyzer = None
             else:
+                logger.info("Using local smart turn analyzer")
                 user_turn_strategies = UserTurnStrategies(
                     start=[VADUserTurnStartStrategy()],
                     stop=[
