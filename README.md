@@ -177,13 +177,13 @@ Existing benchmarks evaluate voice agent components in isolation — speech unde
 
 | **Framework** | **Interaction Mode** | **Multi-turn** | **Tool Calling** | **Goal Completion** | **Experience Metrics** | **Pass@k, Pass^k** | **Supported Systems** |
 |---|---|---|---|---|---|--------------------|---|
-| **EVA** | Live bot-to-bot | ✅ | ✅ | ✅ (Task Completion, Speech Fidelity, Faithfulness) | ✅ (Conciseness, Turn-taking, Latency, Progression) | ✅                  | Audio-native, Cascade |
+| **EVA** | Live bot-to-bot | ✅ | ✅ | ✅ <br>Task Completion, Speech Fidelity, Faithfulness | ✅ <br>Conciseness, Turn-taking, Latency, Progression | ✅                  | Audio-native, Cascade |
 | **VoiceAgent&shy;Bench** | Static, TTS-synthesized | ✅ | ✅ | ⚠️ | ❌ | ❌                  | Audio-native, Cascade |
-| **CAVA** | Partial simulation | ✅ | ✅ | ⚠️ | ⚠️ (Latency, Tone-awareness) | ❌                  | Audio-native, Cascade |
-| **FDB-v2** | Live, automated examiner | ✅ | ❌ | ❌ | ✅ (Turn-taking fluency, Correction handling, Safety) | ❌                  | Audio-native |
-| **FDB-v1** | Static, pre-recorded | ❌ | ❌ | ❌ | ✅ (Turn-taking, Backchanneling, Interruption) | ❌                  | Audio-native |
-| **FD-Bench** | Live, simulated | ❌ | ❌ | ❌ | ✅ (Interruption, Delay, Robustness) | ❌                  | Audio-native |
-| **Talking Turns** | Static, curated | ❌ | ❌ | ❌ | ✅ (Turn change, Backchannel, Interruption) | ❌                  | Audio-native, Cascade |
+| **CAVA** | Partial simulation | ✅ | ✅ | ⚠️ | ⚠️ <br>Latency, Tone-awareness | ❌                  | Audio-native, Cascade |
+| **FDB-v2** | Live, automated examiner | ✅ | ❌ | ❌ | ✅ <br>Turn-taking fluency, Correction handling, Safety | ❌                  | Audio-native |
+| **FDB-v1** | Static, pre-recorded | ❌ | ❌ | ❌ | ✅ <br>Turn-taking, Backchanneling, Interruption | ❌                  | Audio-native |
+| **FD-Bench** | Live, simulated | ❌ | ❌ | ❌ | ✅ <br>Interruption, Delay, Robustness | ❌                  | Audio-native |
+| **Talking Turns** | Static, curated | ❌ | ❌ | ❌ | ✅ <br>Turn change, Backchannel, Interruption | ❌                  | Audio-native, Cascade |
 
 ## 🏗️ Architecture
 
