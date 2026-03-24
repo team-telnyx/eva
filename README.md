@@ -68,6 +68,7 @@ pip install -e ".[dev]"
 
 </details>
 
+### Environment Variables
 
 **Required:**
 - `OPENAI_API_KEY` (or another LLM provider): Powers the assistant LLM and text judge metrics
