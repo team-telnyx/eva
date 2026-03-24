@@ -1,6 +1,6 @@
-# ServiceNow Open Source Code of Conduct
+# Code of Conduct
 
-This code of conduct provides guidelines for participation in ServiceNow-managed open-source communities and projects.
+This code of conduct provides guidelines for participation in this open-source project.
 
 ## Discussion Forum Guidelines
 
@@ -20,7 +20,7 @@ Communities thrive when members support each other and provide useful feedback.
 
 Many open-source projects provide an Issues board, with similar functionality to a Discussions forum. The same rules from the discussion forum guidelines apply to the Issues board.
 
-ServiceNow suggests the following technical support pathways for open-source projects:
+We suggest the following technical support pathways for open-source projects:
 
 1. Clearly identify and document the issue or question you have.
 2. View the documentation.
@@ -37,6 +37,6 @@ ServiceNow suggests the following technical support pathways for open-source pro
 - 'Star' project repos to save for future reference.
 - 'Watch' project repos to get notifications of changes – this can get noisy for some projects, so only watch the ones you really need to track closely.
 
-## ServiceNow Disclaimer
+## Disclaimer
 
 We may, but are under no obligation to, monitor or censor comments made by users or content provided by contributors and we are not responsible for the accuracy, completeness, appropriateness or legality of anything posted, depicted or otherwise provided by third-party users and we disclaim any and all liability relating thereto.
