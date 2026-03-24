@@ -175,7 +175,7 @@ pytest tests/integration/test_metrics.py -v
 
 Existing benchmarks evaluate voice agent components in isolation — speech understanding, TTS quality, or conversational dynamics — but none assess the full pipeline end to end. In real deployed systems, errors compound across modules and failure modes interact in ways that component-level evaluation cannot capture. EVA addresses this by treating voice agent quality as an integrated whole, evaluating accuracy and experience jointly across complete multi-turn spoken conversations.
 
-| **Framework** | **Interaction Mode** | **Multi-turn** | **Tool Calling** | **Goal Completion** | **Experience Metrics** | **Pass@k, Pass^k** | **Supported Systems** |
+| **Framework** | **Interaction Mode** | **Multi-turn** | **Tool Calling** | **Goal Completion** | **Experience Metrics** | **Pass@k<br>Pass^k** | **Supported Systems** |
 |---|---|---|---|---|---|--------------------|---|
 | **EVA** | Live bot-to-bot | ✅ | ✅ | ✅ <br>Task Completion, Speech Fidelity, Faithfulness | ✅ <br>Conciseness, Turn-taking, Latency, Progression | ✅                  | Audio-native, Cascade |
 | **VoiceAgent&shy;Bench** | Static, TTS-synthesized | ✅ | ✅ | ⚠️ | ❌ | ❌                  | Audio-native, Cascade |
