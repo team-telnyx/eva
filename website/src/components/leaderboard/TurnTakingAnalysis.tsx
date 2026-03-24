@@ -63,6 +63,14 @@ const viewLabels: Record<ViewKey, string> = {
   lateTurnBreakdown: 'Late Breakdown',
 };
 
+// Shorter labels for mobile view selector
+const viewLabelsShort: Record<ViewKey, string> = {
+  allTurns: 'All',
+  toolCallTurns: 'Tools',
+  noToolCallTurns: 'No Tools',
+  lateTurnBreakdown: 'Late',
+};
+
 const sections: SectionKey[] = ['allTurns', 'toolCallTurns', 'noToolCallTurns'];
 const allViews: ViewKey[] = ['allTurns', 'toolCallTurns', 'noToolCallTurns', 'lateTurnBreakdown'];
 
@@ -131,10 +139,10 @@ function SystemName({ system, componentColors }: { system: SystemScore; componen
   if (system.type === 's2s' || system.type === '2-part') {
     if (system.tts !== '-') {
       return (
-        <span className="text-sm leading-relaxed">
-          <span style={{ color: componentColors.get(system.llm) }}>{system.llm}</span>
-          <span className="text-text-muted"> + </span>
-          <span style={{ color: componentColors.get(system.tts) }}>{system.tts}</span>
+        <span className="text-sm leading-relaxed inline-flex flex-wrap items-baseline">
+          <span className="whitespace-nowrap" style={{ color: componentColors.get(system.llm) }}>{system.llm}</span>
+          <span className="text-text-muted whitespace-nowrap">&nbsp;+&nbsp;</span>
+          <span className="whitespace-nowrap" style={{ color: componentColors.get(system.tts) }}>{system.tts}</span>
         </span>
       );
     }
@@ -142,12 +150,12 @@ function SystemName({ system, componentColors }: { system: SystemScore; componen
     return <span style={{ color }}>{system.llm}</span>;
   }
   return (
-    <span className="text-sm leading-relaxed">
-      <span style={{ color: componentColors.get(system.stt) }}>{system.stt}</span>
-      <span className="text-text-muted"> + </span>
-      <span style={{ color: componentColors.get(system.llm) }}>{system.llm}</span>
-      <span className="text-text-muted"> + </span>
-      <span style={{ color: componentColors.get(system.tts) }}>{system.tts}</span>
+    <span className="text-sm leading-relaxed inline-flex flex-wrap items-baseline">
+      <span className="whitespace-nowrap" style={{ color: componentColors.get(system.stt) }}>{system.stt}</span>
+      <span className="text-text-muted whitespace-nowrap">&nbsp;+&nbsp;</span>
+      <span className="whitespace-nowrap" style={{ color: componentColors.get(system.llm) }}>{system.llm}</span>
+      <span className="text-text-muted whitespace-nowrap">&nbsp;+&nbsp;</span>
+      <span className="whitespace-nowrap" style={{ color: componentColors.get(system.tts) }}>{system.tts}</span>
     </span>
   );
 }
@@ -295,21 +303,21 @@ function SortMenu({ sortKey, sortDir, onSort }: { sortKey: string | null; sortDi
 // Shared legend
 function DistributionLegend({ colors }: { colors: typeof distributionColors.dark }) {
   return (
-    <div className="flex items-center justify-center gap-6 mt-4 text-sm text-text-primary">
-      <span className="flex items-center gap-2">
-        <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colors.onTime }} />
+    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 sm:gap-x-6 mt-4 text-xs sm:text-sm text-text-primary">
+      <span className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: colors.onTime }} />
         On Time
       </span>
-      <span className="flex items-center gap-2">
-        <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colors.late }} />
+      <span className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: colors.late }} />
         Late
       </span>
-      <span className="flex items-center gap-2">
-        <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colors.early }} />
-        Early / Interruption
+      <span className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: colors.early }} />
+        Early
       </span>
-      <span className="flex items-center gap-2">
-        <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colors.indeterminate }} />
+      <span className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: colors.indeterminate }} />
         Indeterminate
       </span>
     </div>
@@ -325,13 +333,13 @@ interface SharedChartProps {
 
 function BreakdownLegend({ colors }: { colors: typeof breakdownColors.dark }) {
   return (
-    <div className="flex items-center justify-center gap-6 mt-4 text-sm text-text-primary">
-      <span className="flex items-center gap-2">
-        <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colors.withToolCalls }} />
+    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 sm:gap-x-6 mt-4 text-xs sm:text-sm text-text-primary">
+      <span className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: colors.withToolCalls }} />
         With Tool Calls
       </span>
-      <span className="flex items-center gap-2">
-        <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colors.withoutToolCalls }} />
+      <span className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: colors.withoutToolCalls }} />
         Without Tool Calls
       </span>
     </div>
@@ -383,77 +391,127 @@ function ToggleChart({ systems, componentColors }: SharedChartProps) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex gap-1 bg-bg-tertiary rounded-lg p-1 w-fit">
+      <div className="flex justify-center sm:justify-end mb-4">
+        <SortMenu sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+      </div>
+      <div className="flex justify-center sm:justify-start mb-4">
+        <div className="flex gap-1 bg-bg-tertiary rounded-lg p-1 overflow-x-auto">
           {allViews.map(view => (
             <button
               key={view}
               onClick={() => setActiveView(view)}
-              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+              className={`px-2 sm:px-3 py-1.5 text-xs sm:text-sm rounded-md transition-colors whitespace-nowrap ${
                 activeView === view
                   ? 'bg-purple-light/20 text-purple-light font-medium'
                   : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
               }`}
             >
-              {viewLabels[view]}
+              <span className="sm:hidden">{viewLabelsShort[view]}</span>
+              <span className="hidden sm:inline">{viewLabels[view]}</span>
             </button>
           ))}
         </div>
-        <SortMenu sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       </div>
-      <ResponsiveContainer width="100%" height={chartHeight}>
-        <BarChart data={data} layout="vertical" margin={{ top: 5, right: 20, left: 20, bottom: 25 }}>
-          <XAxis
-            type="number"
-            domain={[0, 100]}
-            ticks={[0, 20, 40, 60, 80, 100]}
-            allowDataOverflow={true}
-            tick={{ fill: themeColors.text.primary, fontSize: 12 }}
-            label={{ value: isBreakdown ? '% of late turns' : '% of turns', position: 'insideBottom', offset: -5, fill: themeColors.text.muted, fontSize: 12 }}
-          />
-          <YAxis
-            type="category"
-            dataKey="systemId"
-            width={340}
-            tick={<SystemTickLabel systemLookup={systemLookup} componentColors={componentColors} textColor={themeColors.text.muted} />}
-          />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: themeColors.bg.tertiary,
-              border: `1px solid ${themeColors.text.muted}`,
-              borderRadius: 8,
-              color: themeColors.text.primary,
-              fontSize: 12,
-            }}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            formatter={((value: any, name: any) => [`${value}%`, name]) as any}
-            labelStyle={{ color: themeColors.text.primary, fontWeight: 600 }}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            labelFormatter={(label: any) => {
-              const system = systemLookup.get(label);
-              if (!system) return label;
-              if (system.type === 's2s' || system.type === '2-part') return system.tts !== '-' ? `${system.llm} + ${system.tts}` : system.llm;
-              return `${system.stt} + ${system.llm} + ${system.tts}`;
-            }}
-            itemSorter={() => 0}
-            cursor={false}
-          />
-          {isBreakdown ? (
-            <>
-              <Bar dataKey="withToolCalls" name="With Tool Calls" stackId="a" fill={bdColors.withToolCalls} barSize={20} />
-              <Bar dataKey="withoutToolCalls" name="Without Tool Calls" stackId="a" fill={bdColors.withoutToolCalls} barSize={20} radius={[0, 4, 4, 0]} />
-            </>
-          ) : (
-            <>
-              <Bar dataKey="onTime" name="On Time" stackId="a" fill={colors.onTime} barSize={20} />
-              <Bar dataKey="late" name="Late" stackId="a" fill={colors.late} barSize={20} />
-              <Bar dataKey="early" name="Early / Interruption" stackId="a" fill={colors.early} barSize={20} />
-              <Bar dataKey="indeterminate" name="Indeterminate" stackId="a" fill={colors.indeterminate} barSize={20} radius={[0, 4, 4, 0]} />
-            </>
-          )}
-        </BarChart>
-      </ResponsiveContainer>
-      {isBreakdown ? <BreakdownLegend colors={bdColors} /> : <DistributionLegend colors={colors} />}
+
+      {/* Mobile: Legend at top */}
+      <div className="md:hidden mb-3">
+        {isBreakdown ? <BreakdownLegend colors={bdColors} /> : <DistributionLegend colors={colors} />}
+      </div>
+
+      {/* Desktop: Bar chart */}
+      <div className="hidden md:block">
+        <ResponsiveContainer width="100%" height={chartHeight}>
+          <BarChart data={data} layout="vertical" margin={{ top: 5, right: 20, left: 20, bottom: 25 }}>
+            <XAxis
+              type="number"
+              domain={[0, 100]}
+              ticks={[0, 20, 40, 60, 80, 100]}
+              allowDataOverflow={true}
+              tick={{ fill: themeColors.text.primary, fontSize: 11 }}
+              label={{ value: isBreakdown ? '% of late turns' : '% of turns', position: 'insideBottom', offset: -5, fill: themeColors.text.muted, fontSize: 11 }}
+            />
+            <YAxis
+              type="category"
+              dataKey="systemId"
+              width={280}
+              tick={<SystemTickLabel systemLookup={systemLookup} componentColors={componentColors} textColor={themeColors.text.muted} />}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: themeColors.bg.tertiary,
+                border: `1px solid ${themeColors.text.muted}`,
+                borderRadius: 8,
+                color: themeColors.text.primary,
+                fontSize: 12,
+              }}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={((value: any, name: any) => [`${value}%`, name]) as any}
+              labelStyle={{ color: themeColors.text.primary, fontWeight: 600 }}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              labelFormatter={(label: any) => {
+                const system = systemLookup.get(label);
+                if (!system) return label;
+                if (system.type === 's2s' || system.type === '2-part') return system.tts !== '-' ? `${system.llm} + ${system.tts}` : system.llm;
+                return `${system.stt} + ${system.llm} + ${system.tts}`;
+              }}
+              itemSorter={() => 0}
+              cursor={false}
+            />
+            {isBreakdown ? (
+              <>
+                <Bar dataKey="withToolCalls" name="With Tool Calls" stackId="a" fill={bdColors.withToolCalls} barSize={20} />
+                <Bar dataKey="withoutToolCalls" name="Without Tool Calls" stackId="a" fill={bdColors.withoutToolCalls} barSize={20} radius={[0, 4, 4, 0]} />
+              </>
+            ) : (
+              <>
+                <Bar dataKey="onTime" name="On Time" stackId="a" fill={colors.onTime} barSize={20} />
+                <Bar dataKey="late" name="Late" stackId="a" fill={colors.late} barSize={20} />
+                <Bar dataKey="early" name="Early / Interruption" stackId="a" fill={colors.early} barSize={20} />
+                <Bar dataKey="indeterminate" name="Indeterminate" stackId="a" fill={colors.indeterminate} barSize={20} radius={[0, 4, 4, 0]} />
+              </>
+            )}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Mobile: Table with mini bars */}
+      <div className="md:hidden overflow-x-auto">
+        <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+          <thead>
+            <tr className="border-b border-border-default">
+              <th className="text-left py-2 px-2 text-text-muted font-medium text-xs" style={{ width: '45%' }}>System</th>
+              <th className="text-center py-2 px-1 text-text-muted font-medium text-xs" style={{ width: '55%' }}>
+                {viewLabels[activeView]}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(s => {
+              const entry = ttDataMap.get(s.id);
+              if (!entry) return null;
+              return (
+                <tr key={s.id} className="border-b border-border-default/30">
+                  <td className="py-2 px-2 text-xs">
+                    <SystemName system={s} componentColors={componentColors} />
+                  </td>
+                  <td className="py-2 px-1">
+                    {isBreakdown ? (
+                      <MiniBreakdownBar breakdown={entry.lateTurnBreakdown} colors={bdColors} />
+                    ) : (
+                      <MiniStackedBar pcts={entry[activeView as SectionKey]} colors={colors} section={activeView as SectionKey} />
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Desktop: Legend at bottom */}
+      <div className="hidden md:block">
+        {isBreakdown ? <BreakdownLegend colors={bdColors} /> : <DistributionLegend colors={colors} />}
+      </div>
     </div>
   );
 }
@@ -600,12 +658,48 @@ function SideBySideChart({ systems, componentColors }: SharedChartProps) {
   const systemsWithData = useMemo(() => systems.filter(s => ttDataMap.has(s.id)), [systems]);
   const { sortKey, sortDir, handleSort, sorted } = useSortState(systemsWithData, 'allTurns');
 
+  // Combined legend for SideBySideChart
+  const SideBySideLegend = () => (
+    <div className="flex flex-wrap items-center justify-center gap-x-3 sm:gap-x-6 gap-y-2 text-xs sm:text-sm text-text-primary">
+      <span className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: colors.onTime }} />
+        On Time
+      </span>
+      <span className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: colors.late }} />
+        Late
+      </span>
+      <span className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: colors.early }} />
+        Early
+      </span>
+      <span className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: colors.indeterminate }} />
+        Indeterminate
+      </span>
+      <span className="hidden sm:inline text-text-muted">|</span>
+      <span className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: bdColors.withToolCalls }} />
+        <span className="hidden sm:inline">Late w/</span><span className="sm:hidden">w/</span> Tool Calls
+      </span>
+      <span className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: bdColors.withoutToolCalls }} />
+        <span className="hidden sm:inline">Late w/o</span><span className="sm:hidden">w/o</span> Tool Calls
+      </span>
+    </div>
+  );
+
   return (
     <div>
-      <div className="flex items-center justify-end mb-4">
+      <div className="flex justify-center sm:justify-end mb-4">
         <SortMenu sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       </div>
-      <div className="overflow-x-auto">
+      {/* Mobile: Legend at top */}
+      <div className="md:hidden mb-3">
+        <SideBySideLegend />
+      </div>
+      {/* Desktop table - all columns */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
           <thead>
             <tr className="border-b border-border-default">
@@ -643,32 +737,44 @@ function SideBySideChart({ systems, componentColors }: SharedChartProps) {
           </tbody>
         </table>
       </div>
-      <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-4 text-sm text-text-primary">
-        <span className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colors.onTime }} />
-          On Time
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colors.late }} />
-          Late
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colors.early }} />
-          Early / Interruption
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colors.indeterminate }} />
-          Indeterminate
-        </span>
-        <span className="text-text-muted">|</span>
-        <span className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: bdColors.withToolCalls }} />
-          Late w/ Tool Calls
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: bdColors.withoutToolCalls }} />
-          Late w/o Tool Calls
-        </span>
+      {/* Mobile table - simplified with just Overall and Late Breakdown */}
+      <div className="md:hidden overflow-x-auto">
+        <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+          <thead>
+            <tr className="border-b border-border-default">
+              <th className="text-left py-2 px-2 text-text-muted font-medium text-xs" style={{ width: '45%' }}>System</th>
+              <th className="text-center py-2 px-1 text-text-muted font-medium text-xs" style={{ width: '27.5%' }}>
+                Overall
+              </th>
+              <th className="text-center py-2 px-1 text-text-muted font-medium text-xs" style={{ width: '27.5%' }}>
+                Late Breakdown
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(s => {
+              const entry = ttDataMap.get(s.id);
+              if (!entry) return null;
+              return (
+                <tr key={s.id} className="border-b border-border-default/30">
+                  <td className="py-2 px-2 text-xs">
+                    <SystemName system={s} componentColors={componentColors} />
+                  </td>
+                  <td className="py-2 px-1">
+                    <MiniStackedBar pcts={entry.allTurns} colors={colors} section="allTurns" />
+                  </td>
+                  <td className="py-2 px-1">
+                    <MiniBreakdownBar breakdown={entry.lateTurnBreakdown} colors={bdColors} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {/* Desktop: Legend at bottom */}
+      <div className="hidden md:block mt-4">
+        <SideBySideLegend />
       </div>
     </div>
   );
@@ -693,36 +799,38 @@ export function TurnTakingAnalysis({ systems }: TurnTakingAnalysisProps) {
     <div className="bg-bg-secondary rounded-xl border border-border-default">
       <button
         onClick={() => setIsOpen(o => !o)}
-        className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-bg-hover/50 transition-colors rounded-xl"
+        className="w-full flex items-center justify-between px-4 sm:px-6 py-4 text-left hover:bg-bg-hover/50 transition-colors rounded-xl"
       >
-        <h3 className="text-lg font-semibold text-text-primary">Turn-Taking Analysis</h3>
+        <h3 className="text-base sm:text-lg font-semibold text-text-primary">Turn-Taking Analysis</h3>
         <ChevronDown className={`w-5 h-5 text-text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && (
-        <div className="px-6 pb-6">
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-sm text-text-secondary">Distribution of turn-taking labels across systems. Hover for details.</p>
-            <div className="flex gap-1 bg-bg-tertiary rounded-lg p-1 shrink-0 ml-4">
-              <button
-                onClick={() => setLayout('sideBySide')}
-                className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                  layout === 'sideBySide'
-                    ? 'bg-purple-light/20 text-purple-light font-medium'
-                    : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
-                }`}
-              >
-                Side-by-Side
-              </button>
-              <button
-                onClick={() => setLayout('toggle')}
-                className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                  layout === 'toggle'
-                    ? 'bg-purple-light/20 text-purple-light font-medium'
-                    : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
-                }`}
-              >
-                Toggle View
-              </button>
+        <div className="px-4 sm:px-6 pb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <p className="text-xs sm:text-sm text-text-secondary text-center sm:text-left">Distribution of turn-taking labels across systems. Hover/tap for details.</p>
+            <div className="flex justify-center sm:justify-end">
+              <div className="flex gap-1 bg-bg-tertiary rounded-lg p-1">
+                <button
+                  onClick={() => setLayout('sideBySide')}
+                  className={`px-2 sm:px-3 py-1 text-xs rounded-md transition-colors whitespace-nowrap ${
+                    layout === 'sideBySide'
+                      ? 'bg-purple-light/20 text-purple-light font-medium'
+                      : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
+                  }`}
+                >
+                  Side-by-Side
+                </button>
+                <button
+                  onClick={() => setLayout('toggle')}
+                  className={`px-2 sm:px-3 py-1 text-xs rounded-md transition-colors whitespace-nowrap ${
+                    layout === 'toggle'
+                      ? 'bg-purple-light/20 text-purple-light font-medium'
+                      : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
+                  }`}
+                >
+                  Toggle View
+                </button>
+              </div>
             </div>
           </div>
           {layout === 'sideBySide' && <SideBySideChart systems={systems} componentColors={componentColors} />}

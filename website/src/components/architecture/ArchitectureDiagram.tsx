@@ -67,7 +67,8 @@ export function ArchitectureDiagram() {
         </div>
 
         {/* Branching connector: Worker -> Assistant + User */}
-        <div className="flex justify-center">
+        {/* Desktop: branching pattern */}
+        <div className="hidden md:flex justify-center">
           <div className="relative w-[60%]">
             <Connector color="#8B5CF6" className="h-5" />
             <HLine color="#8B5CF6" className="w-full" />
@@ -77,9 +78,14 @@ export function ArchitectureDiagram() {
             </div>
           </div>
         </div>
+        {/* Mobile: simple vertical connector */}
+        <div className="md:hidden">
+          <Connector color="#8B5CF6" className="h-8" />
+        </div>
 
         {/* Row 3: Assistant + WebSocket + User */}
-        <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
+        {/* Desktop: horizontal layout */}
+        <div className="hidden md:grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
           {/* AssistantServer */}
           <div>
             <Node label="Voice Agent" sublabel="Pipecat Server" color="#8B5CF6" delay={0.2} />
@@ -99,7 +105,7 @@ export function ArchitectureDiagram() {
             </div>
           </div>
 
-          {/* WebSocket bidirectional arrow */}
+          {/* WebSocket bidirectional arrow - horizontal */}
           <div className="flex flex-col items-center justify-center pt-6 px-2">
             <div className="flex items-center gap-1">
               <div className="text-cyan font-bold">&larr;</div>
@@ -131,8 +137,62 @@ export function ArchitectureDiagram() {
           </div>
         </div>
 
+        {/* Mobile: vertical stacked layout */}
+        <div className="md:hidden flex flex-col items-center gap-4">
+          {/* AssistantServer */}
+          <div className="w-full max-w-sm">
+            <Node label="Voice Agent" sublabel="Pipecat Server" color="#8B5CF6" delay={0.2} />
+            <div className="mt-4 space-y-2.5 pl-4">
+              <div className="text-sm text-text-muted border-l-2 border-purple/30 pl-3 py-1">
+                <span className="text-purple-light font-medium">Cascade Pipeline</span> — STT + LLM + TTS
+              </div>
+              <div className="text-sm text-text-muted border-l-2 border-purple/30 pl-3 py-1">
+                <span className="text-purple-light font-medium">Speech-to-Speech</span> — Realtime models
+              </div>
+              <div className="text-sm text-text-muted border-l-2 border-purple/30 pl-3 py-1">
+                <span className="text-purple-light font-medium">Turn Detection</span> — VAD + Smart Turn Analyzer
+              </div>
+              <div className="text-sm text-text-muted border-l-2 border-purple/30 pl-3 py-1">
+                <span className="text-purple-light font-medium">Tool Executor</span> — Dynamic python tools
+              </div>
+            </div>
+          </div>
+
+          {/* WebSocket bidirectional arrow - vertical */}
+          <div className="flex flex-col items-center py-2">
+            <div className="flex flex-col items-center gap-1">
+              <div className="text-cyan font-bold">&uarr;</div>
+              <div
+                style={{
+                  width: '2px',
+                  height: '40px',
+                  background: `repeating-linear-gradient(to bottom, #06B6D480 0px, #06B6D480 8px, transparent 8px, transparent 12px)`,
+                }}
+              />
+              <div className="text-cyan font-bold">&darr;</div>
+            </div>
+            <div className="mt-2 px-3 py-1.5 rounded-full bg-cyan/10 border border-cyan/30 text-cyan text-xs font-medium whitespace-nowrap">
+              WebSocket Audio
+            </div>
+          </div>
+
+          {/* UserSimulator */}
+          <div className="w-full max-w-sm">
+            <Node label="User Simulator" color="#38BDF8" delay={0.3} />
+            <div className="mt-4 space-y-2.5 pl-4">
+              <div className="text-sm text-text-muted border-l-2 border-blue/30 pl-3 py-1">
+                <span className="text-blue-light font-medium">Scenario-specific</span> — Unique goal, decision logic, persona &amp; constraints
+              </div>
+              <div className="text-sm text-text-muted border-l-2 border-blue/30 pl-3 py-1">
+                <span className="text-blue-light font-medium">Human-like voice</span> — Conversational TTS
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Merging connector: Assistant + User -> single line */}
-        <div className="flex justify-center">
+        {/* Desktop: merging pattern */}
+        <div className="hidden md:flex justify-center">
           <div className="relative w-[60%]">
             <div className="flex justify-between">
               <Connector color="#F59E0B" className="h-5" />
@@ -141,6 +201,10 @@ export function ArchitectureDiagram() {
             <HLine color="#F59E0B" className="w-full" />
             <Connector color="#F59E0B" className="h-5" />
           </div>
+        </div>
+        {/* Mobile: simple vertical connector */}
+        <div className="md:hidden">
+          <Connector color="#F59E0B" className="h-8" />
         </div>
 
         {/* Row 4: Outputs */}

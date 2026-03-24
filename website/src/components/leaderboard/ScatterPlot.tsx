@@ -1,8 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, useXAxisScale, useYAxisScale } from 'recharts';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { SystemScore } from '../../data/leaderboardData';
 import { useThemeColors } from '../../styles/theme';
+
+function useIsMobile(breakpoint = 640) {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < breakpoint);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, [breakpoint]);
+  return isMobile;
+}
 
 /** Renders "EVA-A" + subscript in HTML */
 function Sub({ base, sub }: { base: string; sub: string }) {
@@ -45,20 +56,23 @@ function CustomTooltip({ active, payload, xSub, ySub }: CustomTooltipProps) {
 }
 
 /** SVG axis label with subscript via <tspan> */
-function AxisLabel({ x, y, base, sub, suffix, fill, angle }: { x: number; y: number; base: string; sub: string; suffix?: string; fill: string; angle?: number }) {
+function AxisLabel({ x, y, base, sub, suffix, fill, angle, small }: { x: number; y: number; base: string; sub: string; suffix?: string; fill: string; angle?: number; small?: boolean }) {
+  const mainSize = small ? 12 : 20;
+  const subSize = small ? 9 : 14;
+  const dyOffset = small ? 3 : 5;
   return (
     <text
       x={x}
       y={y}
       fill={fill}
-      fontSize={20}
+      fontSize={mainSize}
       fontWeight={600}
       textAnchor="middle"
       transform={angle ? `rotate(${angle}, ${x}, ${y})` : undefined}
     >
       {base}
-      <tspan fontSize={14} dy={5}>{sub}</tspan>
-      {suffix && <tspan fontSize={20} dy={-5}>{suffix}</tspan>}
+      <tspan fontSize={subSize} dy={dyOffset}>{sub}</tspan>
+      {suffix && <tspan fontSize={mainSize} dy={-dyOffset}>{suffix}</tspan>}
     </text>
   );
 }
@@ -179,6 +193,7 @@ interface ScatterPlotProps {
 export function ScatterPlot({ systems }: ScatterPlotProps) {
   const colors = useThemeColors();
   const [index, setIndex] = useState(0);
+  const isMobile = useIsMobile();
   const plot = plots[index];
   const data: ScatterPoint[] = systems.map(s => ({ ...s, plotX: plot.getX(s), plotY: plot.getY(s) }));
   const frontierLine = computeParetoFrontier(data);
@@ -221,13 +236,13 @@ export function ScatterPlot({ systems }: ScatterPlotProps) {
         </button>
       </div>
 
-      {/* Chart + legend side by side */}
-      <div className="flex items-center gap-6 max-w-4xl mx-auto">
+      {/* Chart + legend - stacked on mobile, side by side on desktop */}
+      <div className="flex flex-col lg:flex-row lg:items-center gap-6 max-w-4xl mx-auto">
         {/* Chart */}
-        <div className="flex-1">
-          <div style={{ width: '100%', aspectRatio: '1' }} className="[&_.recharts-surface]:overflow-visible">
+        <div className="flex-1 min-w-0">
+          <div style={{ width: '100%', aspectRatio: '1' }} className="[&_.recharts-surface]:overflow-visible min-h-[300px] sm:min-h-[400px]">
             <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 15, right: 20, bottom: 60, left: 45 }} style={{ overflow: 'visible' }}>
+              <ScatterChart margin={{ top: 15, right: 15, bottom: isMobile ? 45 : 60, left: isMobile ? 25 : 40 }} style={{ overflow: 'visible' }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={colors.bg.tertiary} />
                 <XAxis
                   type="number"
@@ -237,10 +252,10 @@ export function ScatterPlot({ systems }: ScatterPlotProps) {
                   allowDataOverflow={true}
                   tickFormatter={(v: number) => v.toFixed(1)}
                   stroke={colors.text.muted}
-                  tick={{ fill: colors.text.secondary, fontSize: 12 }}
+                  tick={{ fill: colors.text.secondary, fontSize: 11 }}
                   label={({ viewBox }) => {
                     const { x, y, width } = viewBox as { x: number; y: number; width: number };
-                    return <AxisLabel x={x + width / 2} y={y + 50} base="Accuracy (EVA-A" sub={plot.subscript} suffix=")" fill={colors.accent.purpleLight} />;
+                    return <AxisLabel x={x + width / 2} y={y + (isMobile ? 35 : 50)} base="Accuracy (EVA-A" sub={plot.subscript} suffix=")" fill={colors.accent.purpleLight} small={isMobile} />;
                   }}
                 />
                 <YAxis
@@ -251,10 +266,10 @@ export function ScatterPlot({ systems }: ScatterPlotProps) {
                   allowDataOverflow={true}
                   tickFormatter={(v: number) => v.toFixed(1)}
                   stroke={colors.text.muted}
-                  tick={{ fill: colors.text.secondary, fontSize: 12 }}
+                  tick={{ fill: colors.text.secondary, fontSize: 11 }}
                   label={({ viewBox }) => {
                     const { x, y, height } = viewBox as { x: number; y: number; height: number };
-                    return <AxisLabel x={x - 8} y={y + height / 2} base="Experience (EVA-X" sub={plot.subscript} suffix=")" fill={colors.accent.blueLight} angle={-90} />;
+                    return <AxisLabel x={x - (isMobile ? 2 : 8)} y={y + height / 2} base="Experience (EVA-X" sub={plot.subscript} suffix=")" fill={colors.accent.blueLight} angle={-90} small={isMobile} />;
                   }}
                 />
                 <Tooltip content={<CustomTooltip xSub={plot.subscript} ySub={plot.subscript} />} cursor={false} />
@@ -278,22 +293,22 @@ export function ScatterPlot({ systems }: ScatterPlotProps) {
           </div>
         </div>
 
-        {/* Legend on the side */}
-        <div className="flex flex-col gap-3 flex-shrink-0 pr-2">
-          <div className="flex items-center gap-2 text-sm text-text-secondary">
-            <div className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: cascadeColor }} />
-            <span className="whitespace-nowrap">Cascade (STT + LLM + TTS)</span>
+        {/* Legend - horizontal wrap on mobile, vertical on desktop */}
+        <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 lg:flex-col lg:gap-3 lg:flex-shrink-0 lg:pr-2">
+          <div className="flex items-center gap-2 text-xs sm:text-sm text-text-secondary">
+            <div className="w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: cascadeColor }} />
+            <span className="whitespace-nowrap">Cascade</span>
           </div>
-          <div className="flex items-center gap-2 text-sm text-text-secondary">
-            <div className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: twoPartColor }} />
-            <span className="whitespace-nowrap">Audio Native (AudioLLM + TTS)</span>
+          <div className="flex items-center gap-2 text-xs sm:text-sm text-text-secondary">
+            <div className="w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: twoPartColor }} />
+            <span className="whitespace-nowrap">Audio Native</span>
           </div>
-          <div className="flex items-center gap-2 text-sm text-text-secondary">
-            <div className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: s2sColor }} />
+          <div className="flex items-center gap-2 text-xs sm:text-sm text-text-secondary">
+            <div className="w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: s2sColor }} />
             <span className="whitespace-nowrap">Speech-to-Speech</span>
           </div>
-          <div className="flex items-center gap-2 text-sm text-text-secondary">
-            <div className="w-6 h-0 border-t-2 border-dashed flex-shrink-0" style={{ borderColor: frontierColor }} />
+          <div className="flex items-center gap-2 text-xs sm:text-sm text-text-secondary">
+            <div className="w-5 sm:w-6 h-0 border-t-2 border-dashed flex-shrink-0" style={{ borderColor: frontierColor }} />
             <span className="whitespace-nowrap">Pareto Frontier</span>
           </div>
         </div>

@@ -46,10 +46,10 @@ function SystemName({ system, componentColors }: { system: SystemScore; componen
   if (system.type === 's2s' || system.type === '2-part') {
     if (system.tts !== '-') {
       return (
-        <span className="text-sm leading-relaxed">
-          <span style={{ color: componentColors.get(system.llm) }}>{system.llm}</span>
-          <span className="text-text-muted"> + </span>
-          <span style={{ color: componentColors.get(system.tts) }}>{system.tts}</span>
+        <span className="text-sm leading-relaxed inline-flex flex-wrap items-baseline">
+          <span className="whitespace-nowrap" style={{ color: componentColors.get(system.llm) }}>{system.llm}</span>
+          <span className="text-text-muted whitespace-nowrap">&nbsp;+&nbsp;</span>
+          <span className="whitespace-nowrap" style={{ color: componentColors.get(system.tts) }}>{system.tts}</span>
         </span>
       );
     }
@@ -57,12 +57,12 @@ function SystemName({ system, componentColors }: { system: SystemScore; componen
     return <span style={{ color }}>{system.llm}</span>;
   }
   return (
-    <span className="text-sm leading-relaxed">
-      <span style={{ color: componentColors.get(system.stt) }}>{system.stt}</span>
-      <span className="text-text-muted"> + </span>
-      <span style={{ color: componentColors.get(system.llm) }}>{system.llm}</span>
-      <span className="text-text-muted"> + </span>
-      <span style={{ color: componentColors.get(system.tts) }}>{system.tts}</span>
+    <span className="text-sm leading-relaxed inline-flex flex-wrap items-baseline">
+      <span className="whitespace-nowrap" style={{ color: componentColors.get(system.stt) }}>{system.stt}</span>
+      <span className="text-text-muted whitespace-nowrap">&nbsp;+&nbsp;</span>
+      <span className="whitespace-nowrap" style={{ color: componentColors.get(system.llm) }}>{system.llm}</span>
+      <span className="text-text-muted whitespace-nowrap">&nbsp;+&nbsp;</span>
+      <span className="whitespace-nowrap" style={{ color: componentColors.get(system.tts) }}>{system.tts}</span>
     </span>
   );
 }
@@ -108,6 +108,8 @@ export function MetricHeatmap({ title, description, metricKeys, metricLabels, da
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  // Mobile view: tabs to switch between aggregate scores and individual metrics
+  const [mobileTab, setMobileTab] = useState<'scores' | 'metrics'>('scores');
 
   const openMenu = useCallback(() => {
     if (buttonRef.current) {
@@ -214,11 +216,47 @@ export function MetricHeatmap({ title, description, metricKeys, metricLabels, da
 
   const headerClass = "text-center py-3 px-1 font-bold text-xs leading-snug cursor-pointer select-none hover:bg-bg-hover/50 transition-colors";
 
+  // Determine which columns to show based on mobile tab
+  const showAggCols = mobileTab === 'scores' ? aggCols : [];
+  const showMetricKeys = mobileTab === 'metrics' ? metricKeys : [];
+
+  // Calculate column widths based on what's shown
+  const mobileTotalDataCols = mobileTab === 'scores' ? aggCols.length : metricKeys.length;
+  const mobileDataColWidth = `${(100 - systemPct) / mobileTotalDataCols}%`;
+
   return (
-    <div className="bg-bg-secondary rounded-xl border border-border-default p-6">
+    <div className="bg-bg-secondary rounded-xl border border-border-default p-4 sm:p-6">
       <h3 className="text-lg font-semibold text-text-primary mb-1">{title}</h3>
       <p className="text-sm text-text-secondary mb-4">{description}</p>
-      <div className="overflow-x-auto">
+
+      {/* Mobile tabs - only show if we have both aggregate columns and metrics */}
+      {aggCols.length > 0 && metricKeys.length > 0 && (
+        <div className="flex gap-2 mb-4 md:hidden">
+          <button
+            onClick={() => setMobileTab('scores')}
+            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+              mobileTab === 'scores'
+                ? 'bg-purple/20 text-purple-light'
+                : 'bg-bg-hover text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            Aggregate Scores
+          </button>
+          <button
+            onClick={() => setMobileTab('metrics')}
+            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+              mobileTab === 'metrics'
+                ? 'bg-purple/20 text-purple-light'
+                : 'bg-bg-hover text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            Individual Metrics
+          </button>
+        </div>
+      )}
+
+      {/* Desktop table - shows all columns */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
           <thead>
             <tr className="border-b border-border-default">
@@ -305,6 +343,81 @@ export function MetricHeatmap({ title, description, metricKeys, metricLabels, da
                     <td key={k} className="py-1.5 px-1 text-center">
                       <div
                         className="rounded-md px-0.5 py-1.5 font-mono text-xs font-medium"
+                        style={{ backgroundColor: bg, color: text }}
+                      >
+                        {val.toFixed(2)}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile table - shows only selected tab columns */}
+      <div className="md:hidden overflow-x-auto">
+        <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+          <thead>
+            <tr className="border-b border-border-default">
+              <th className="text-left py-3 px-2 text-text-muted font-medium text-xs sticky left-0 bg-bg-secondary z-10" style={{ width: systemColWidth }}>
+                System
+              </th>
+              {showAggCols.map((col) => (
+                <th
+                  key={col.key}
+                  className={`${headerClass} text-[10px] sm:text-xs`}
+                  style={{ color: aggregateColor, width: mobileDataColWidth }}
+                  onClick={() => handleHeaderClick(col.key)}
+                >
+                  {col.label.replace('EVA-A ', '')}
+                  <SortIndicator active={sortKey === col.key} dir={sortDir} />
+                </th>
+              ))}
+              {showMetricKeys.map(k => (
+                <th
+                  key={k}
+                  className={`${headerClass} text-text-primary text-[10px] sm:text-xs`}
+                  style={{ width: mobileDataColWidth }}
+                  onClick={() => handleHeaderClick(k)}
+                >
+                  {metricLabels[k] || k}
+                  <SortIndicator active={sortKey === k} dir={sortDir} />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((s) => (
+              <tr key={s.id} className="border-b border-border-default/30">
+                <td className="py-2 px-2 sticky left-0 bg-bg-secondary z-10 text-xs">
+                  <SystemName system={s} componentColors={componentColors} />
+                </td>
+                {showAggCols.map((col) => {
+                  const val = col.getValue(s);
+                  const { min, max } = aggRanges[col.key];
+                  const { bg, text } = getScaledHeatmapColor(val, min, max, aggregateColor, false, themeColors);
+                  return (
+                    <td key={col.key} className="py-1 px-0.5 text-center">
+                      <div
+                        className="rounded-md px-0.5 py-1 font-mono text-[10px] sm:text-xs font-medium"
+                        style={{ backgroundColor: bg, color: text }}
+                      >
+                        {val.toFixed(2)}
+                      </div>
+                    </td>
+                  );
+                })}
+                {showMetricKeys.map(k => {
+                  const val = s[dataKey][k] ?? 0;
+                  const { min, max } = metricRanges[k];
+                  const invert = invertedMetrics.has(k);
+                  const { bg, text } = getScaledHeatmapColor(val, min, max, baseColor, invert, themeColors);
+                  return (
+                    <td key={k} className="py-1 px-0.5 text-center">
+                      <div
+                        className="rounded-md px-0.5 py-1 font-mono text-[10px] sm:text-xs font-medium"
                         style={{ backgroundColor: bg, color: text }}
                       >
                         {val.toFixed(2)}

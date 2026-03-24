@@ -22,17 +22,17 @@ export function MetricsExplorer() {
           viewport={{ once: true }}
           transition={{ duration: 0.5 }}
         >
-          <div className="rounded-xl border-2 border-purple/30 bg-purple/5 p-5 mb-5 text-center">
+          <div className="rounded-xl border-2 border-purple/30 bg-purple/5 p-5 text-center">
             <div className="text-sm font-bold text-purple-light tracking-widest uppercase mb-1">EVA-A</div>
             <div className="text-2xl font-bold text-text-primary">Accuracy</div>
             <p className="text-sm text-text-secondary mt-1.5">Did the agent complete the task correctly?</p>
           </div>
 
-          <div className="relative">
-            <div className="absolute left-1/2 top-0 w-px h-4 bg-purple/30" />
+          <div className="flex justify-center">
+            <div className="w-px h-5 bg-purple/30" />
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3 pt-0">
             {evaAMetrics.map(metric => (
               <MetricNode key={metric.id} metric={metric} />
             ))}
@@ -46,17 +46,17 @@ export function MetricsExplorer() {
           viewport={{ once: true }}
           transition={{ duration: 0.5, delay: 0.1 }}
         >
-          <div className="rounded-xl border-2 border-blue/30 bg-blue/5 p-5 mb-5 text-center">
+          <div className="rounded-xl border-2 border-blue/30 bg-blue/5 p-5 text-center">
             <div className="text-sm font-bold text-blue-light tracking-widest uppercase mb-1">EVA-X</div>
             <div className="text-2xl font-bold text-text-primary">Experience</div>
             <p className="text-sm text-text-secondary mt-1.5">Was the conversational experience high quality?</p>
           </div>
 
-          <div className="relative">
-            <div className="absolute left-1/2 top-0 w-px h-4 bg-blue/30" />
+          <div className="flex justify-center">
+            <div className="w-px h-5 bg-blue/30" />
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3 pt-0">
             {evaXMetrics.map(metric => (
               <MetricNode key={metric.id} metric={metric} />
             ))}
