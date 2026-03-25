@@ -1,7 +1,8 @@
 """Telnyx Call Control transport backed by media streaming websockets.
 
 Uses the shared tool webhook FastAPI app to handle media stream connections
-from Telnyx. Audio is exchanged via bidirectional RTP over WebSocket (PCMU codec).
+from Telnyx. Audio is exchanged via bidirectional RTP over WebSocket (L16 codec,
+16-bit linear PCM at 16kHz).
 """
 
 import asyncio
@@ -104,7 +105,7 @@ class CallControlTransport(BaseTelephonyTransport):
                     "stream_url": stream_wss_url,
                     "stream_track": "both_tracks",
                     "stream_bidirectional_mode": "rtp",
-                    "stream_bidirectional_codec": "PCMU",
+                    "stream_bidirectional_codec": "L16",
                 },
             )
             data = response.get("data", {})
@@ -191,7 +192,20 @@ class CallControlTransport(BaseTelephonyTransport):
 
                 event_type = message.get("event")
                 if event_type == "media":
-                    payload_b64 = message.get("media", {}).get("payload")
+                    media_obj = message.get("media", {})
+                    payload_b64 = media_obj.get("payload")
+                    track = media_obj.get("track", "unknown")
+                    if not hasattr(self, "_media_log_count"):
+                        self._media_log_count = 0
+                    if self._media_log_count < 5:
+                        logger.info(
+                            "Media event #%d: track=%s, payload_len=%d, keys=%s",
+                            self._media_log_count,
+                            track,
+                            len(payload_b64) if payload_b64 else 0,
+                            list(media_obj.keys()),
+                        )
+                        self._media_log_count += 1
                     if payload_b64:
                         audio_bytes = base64.b64decode(payload_b64)
                         await self.emit_audio(audio_bytes)

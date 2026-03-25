@@ -28,20 +28,19 @@ from eva.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-INPUT_SAMPLE_RATE = 8000
+INPUT_SAMPLE_RATE = 16000
 OUTPUT_SAMPLE_RATE = 24000
 PCM_SAMPLE_WIDTH = 2
 SEGMENT_GAP_SECONDS = 0.75
 
 
-def _mulaw_to_pcm24k(mulaw_data: bytes) -> bytes:
-    """Convert 8kHz μ-law audio to 24kHz 16-bit PCM."""
-    if not mulaw_data:
+def _pcm16k_to_pcm24k(pcm_16khz: bytes) -> bytes:
+    """Upsample 16kHz 16-bit PCM audio to 24kHz 16-bit PCM."""
+    if not pcm_16khz:
         return b""
 
-    pcm_8khz = audioop.ulaw2lin(mulaw_data, PCM_SAMPLE_WIDTH)
     pcm_24khz, _ = audioop.ratecv(
-        pcm_8khz,
+        pcm_16khz,
         PCM_SAMPLE_WIDTH,
         1,
         INPUT_SAMPLE_RATE,
@@ -192,7 +191,7 @@ class BaseTelephonyTransport(ABC):
 
     @abstractmethod
     async def send_audio(self, audio_data: bytes) -> None:
-        """Send 8kHz μ-law audio to the external assistant."""
+        """Send 16kHz 16-bit PCM (L16) audio to the external assistant."""
 
 
 
@@ -209,8 +208,8 @@ class _SessionState:
     user_segments: list[AudioSegment] = field(default_factory=list)
     assistant_segments: list[AudioSegment] = field(default_factory=list)
 
-    def add_chunk(self, role: str, mulaw_data: bytes, offset_seconds: float) -> None:
-        pcm_24khz = _mulaw_to_pcm24k(mulaw_data)
+    def add_chunk(self, role: str, pcm_data: bytes, offset_seconds: float) -> None:
+        pcm_24khz = _pcm16k_to_pcm24k(pcm_data)
         if not pcm_24khz:
             return
 
@@ -277,6 +276,7 @@ class TelephonyBridgeServer:
         self._session_state: _SessionState | None = None
         self._session_started_monotonic: float | None = None
         self._transport: BaseTelephonyTransport | None = None
+        self._tool_webhook_register_callback: Callable[[str], Any] | None = None
 
         self._app = FastAPI()
         self._server: uvicorn.Server | None = None
@@ -379,6 +379,7 @@ class TelephonyBridgeServer:
         assistant_audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
 
         async def on_transport_audio(audio_data: bytes) -> None:
+            """Audio from Telnyx (L16 16kHz PCM) → forward to user simulator."""
             assert self._session_state is not None
             offset_seconds = self._elapsed_seconds()
             self._session_state.add_chunk("assistant", audio_data, offset_seconds)
@@ -404,6 +405,14 @@ class TelephonyBridgeServer:
         try:
             await self._transport.start()
 
+            # After transport starts, register the call_control_id with the webhook
+            # so tool calls routed by {{call_control_id}} find the right executor
+            if hasattr(self._transport, '_call_control_id') and self._transport._call_control_id:
+                cc_id = self._transport._call_control_id
+                if self._tool_webhook_register_callback:
+                    await self._tool_webhook_register_callback(cc_id)
+                    logger.info("Registered call_control_id %s for tool webhooks", cc_id)
+
             while True:
                 message = await websocket.receive_text()
                 payload = json.loads(message)
@@ -411,12 +420,22 @@ class TelephonyBridgeServer:
 
                 if event == "media":
                     audio_base64 = payload.get("media", {}).get("payload", "")
-                    mulaw_audio = base64.b64decode(audio_base64) if audio_base64 else b""
-                    if mulaw_audio:
+                    pcm_audio = base64.b64decode(audio_base64) if audio_base64 else b""
+                    if pcm_audio:
+                        if not hasattr(self, "_outbound_log_count"):
+                            self._outbound_log_count = 0
+                        if self._outbound_log_count < 5:
+                            logger.info(
+                                "Outbound audio #%d: %d bytes, first4=%s",
+                                self._outbound_log_count,
+                                len(pcm_audio),
+                                pcm_audio[:4].hex(),
+                            )
+                            self._outbound_log_count += 1
                         assert self._session_state is not None
                         offset_seconds = self._elapsed_seconds()
-                        self._session_state.add_chunk("user", mulaw_audio, offset_seconds)
-                        await self._transport.send_audio(mulaw_audio)
+                        self._session_state.add_chunk("user", pcm_audio, offset_seconds)
+                        await self._transport.send_audio(pcm_audio)
                 elif event == "stop":
                     logger.info(f"Received stop event for {self.conversation_id}")
                     break
@@ -427,8 +446,16 @@ class TelephonyBridgeServer:
             logger.info(f"Telephony bridge websocket disconnected for {self.conversation_id}")
         except Exception as exc:
             logger.error(f"Telephony bridge session error: {exc}", exc_info=True)
-            raise
         finally:
+            # Log audio capture stats
+            if self._session_state is not None:
+                user_bytes = len(self._session_state.user_audio)
+                asst_bytes = len(self._session_state.assistant_audio)
+                logger.info(
+                    "Session audio captured: user=%d bytes, assistant=%d bytes",
+                    user_bytes, asst_bytes,
+                )
+
             await assistant_audio_queue.put(None)
             try:
                 await sender_task
@@ -485,6 +512,13 @@ class TelephonyBridgeServer:
     async def _save_outputs(self) -> None:
         """Persist bridge outputs in the same shape as AssistantServer."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            "Saving outputs to %s (session_state=%s, user_audio=%d, assistant_audio=%d)",
+            self.output_dir,
+            self._session_state is not None,
+            len(self._session_state.user_audio) if self._session_state else 0,
+            len(self._session_state.assistant_audio) if self._session_state else 0,
+        )
 
         transcript_entries = await self._generate_transcript()
         transcript_path = self.output_dir / "transcript.jsonl"
