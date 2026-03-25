@@ -195,22 +195,7 @@ class BaseTelephonyTransport(ABC):
         """Send 8kHz μ-law audio to the external assistant."""
 
 
-class SIPTransport(BaseTelephonyTransport):
-    """Placeholder SIP transport for future outbound SIP support."""
 
-    async def start(self) -> None:
-        logger.warning(
-            "SIPTransport is currently a transport scaffold for %s. "
-            "Inject a concrete BaseTelephonyTransport implementation to run calls end-to-end.",
-            self.sip_uri,
-        )
-
-    async def stop(self) -> None:
-        logger.info(f"SIP transport stopped for {self.sip_uri}")
-
-    async def send_audio(self, audio_data: bytes) -> None:
-        if audio_data:
-            logger.debug("Dropping outbound audio because SIPTransport is not implemented yet")
 
 
 @dataclass(slots=True)
@@ -392,10 +377,9 @@ class TelephonyBridgeServer:
                 conversation_id=conversation_id,
                 webhook_base_url=config.webhook_base_url,
             )
-        return SIPTransport(
-            sip_uri=config.sip_uri or "",
-            conversation_id=conversation_id,
-            webhook_base_url=config.webhook_base_url,
+        raise ValueError(
+            f"No transport configured for telephony bridge. "
+            f"Set transport='webrtc' with telnyx_assistant_id, or transport='call_control' with Call Control settings."
         )
 
     async def _handle_session(self, websocket: WebSocket) -> None:
