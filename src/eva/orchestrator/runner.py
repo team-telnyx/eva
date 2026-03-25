@@ -97,12 +97,17 @@ class BenchmarkRunner:
 
     async def _start_support_services(self) -> None:
         """Start optional runner-scoped services (e.g., tool webhook for telephony bridge)."""
-        if isinstance(self.config.model, TelephonyBridgeConfig) and (
+        if (
+            isinstance(self.config.model, TelephonyBridgeConfig)
+            and self.config.model.transport == "webrtc"
+            and (
             self.config.model.telnyx_assistant_id or self.config.model.telnyx_model
+            )
         ):
             await ensure_telnyx_webrtc_helper_dependencies()
         if (
             isinstance(self.config.model, TelephonyBridgeConfig)
+            and self.config.model.transport == "webrtc"
             and self.config.model.telnyx_model
             and self.config.model.telnyx_assistant_id is None
         ):
@@ -184,7 +189,7 @@ class BenchmarkRunner:
             }
         elif isinstance(self.config.model, TelephonyBridgeConfig):
             self.config.resolved_models = {
-                "transport": "sip",
+                "transport": self.config.model.transport,
                 "sip_uri": self.config.model.sip_uri,
                 "webhook_base_url": self.config.model.webhook_base_url,
                 "stt_provider": self.config.model.stt,
@@ -192,7 +197,10 @@ class BenchmarkRunner:
             }
             self.config.resolved_models["telnyx_assistant_id"] = self.config.model.telnyx_assistant_id
             self.config.resolved_models["telnyx_model"] = self.config.model.telnyx_model
-            if self.config.model.telnyx_assistant_id:
+            self.config.resolved_models["call_control_stream_url"] = self.config.model.call_control_stream_url
+            self.config.resolved_models["call_control_connection_id"] = self.config.model.call_control_connection_id
+            self.config.resolved_models["call_control_from"] = self.config.model.call_control_from
+            if self.config.model.transport == "webrtc" and self.config.model.telnyx_assistant_id:
                 self.config.resolved_models["transport"] = "telnyx_webrtc"
 
         config_path = self.output_dir / "config.json"
