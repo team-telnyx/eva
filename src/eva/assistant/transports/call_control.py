@@ -1,11 +1,13 @@
 """Telnyx Call Control transport backed by media streaming websockets.
 
-Uses the shared tool webhook FastAPI app to handle media stream connections
-from Telnyx. Audio is exchanged via bidirectional RTP over WebSocket (L16 codec,
-16-bit linear PCM at 16kHz).
+We REQUEST L16 16kHz for the bidirectional stream, but Telnyx may send audio
+back in a different codec (e.g. PCMU 8kHz). The ``media_format`` in the
+``start`` event tells us the actual inbound codec; we convert to 16kHz PCM
+before emitting so the rest of the pipeline always sees uniform L16.
 """
 
 import asyncio
+import audioop
 import base64
 import json
 from typing import Any
@@ -170,6 +172,35 @@ class CallControlTransport(BaseTelephonyTransport):
     # Called by the webhook server when Telnyx connects the media stream
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Inbound audio conversion helpers
+    # ------------------------------------------------------------------
+
+    def _convert_inbound_audio(self, raw_audio: bytes) -> bytes:
+        """Convert inbound audio to 16kHz 16-bit PCM based on detected codec.
+
+        If Telnyx sends PCMU (μ-law 8kHz), decode and upsample.
+        If L16 16kHz, pass through. Otherwise best-effort passthrough.
+        """
+        enc = self._inbound_encoding
+        rate = self._inbound_sample_rate
+
+        if enc == "PCMU" or enc == "audio/x-mulaw":
+            # μ-law → 16-bit linear PCM
+            pcm_audio = audioop.ulaw2lin(raw_audio, 2)
+            if rate and rate != 16000:
+                # Upsample (typically 8000 → 16000)
+                pcm_audio, _ = audioop.ratecv(pcm_audio, 2, 1, rate, 16000, None)
+            return pcm_audio
+        elif enc == "L16" or enc == "audio/L16":
+            if rate and rate != 16000:
+                pcm_audio, _ = audioop.ratecv(raw_audio, 2, 1, rate, 16000, None)
+                return pcm_audio
+            return raw_audio
+        else:
+            # Unknown codec — pass through and hope for the best
+            return raw_audio
+
     async def handle_media_stream(self, websocket: Any) -> None:
         """Handle the incoming media stream WebSocket from Telnyx.
 
@@ -179,6 +210,13 @@ class CallControlTransport(BaseTelephonyTransport):
         self._stream_ws = websocket
         self._connected_event.set()
         self._disconnected_event.clear()
+
+        # Inbound codec — set from the "start" event's media_format.
+        # Defaults assume L16 16kHz (what we requested), overridden once we
+        # get the actual format from Telnyx.
+        self._inbound_encoding: str = "L16"
+        self._inbound_sample_rate: int = 16000
+
         logger.info("Telnyx media stream connected for conversation %s", self.conversation_id)
 
         try:
@@ -199,25 +237,38 @@ class CallControlTransport(BaseTelephonyTransport):
                         self._media_log_count = 0
                     if self._media_log_count < 5:
                         logger.info(
-                            "Media event #%d: track=%s, payload_len=%d, keys=%s",
+                            "Media event #%d: track=%s, payload_len=%d, encoding=%s@%dHz",
                             self._media_log_count,
                             track,
                             len(payload_b64) if payload_b64 else 0,
-                            list(media_obj.keys()),
+                            self._inbound_encoding,
+                            self._inbound_sample_rate,
                         )
                         self._media_log_count += 1
                     if payload_b64:
-                        audio_bytes = base64.b64decode(payload_b64)
-                        await self.emit_audio(audio_bytes)
+                        raw_audio = base64.b64decode(payload_b64)
+                        pcm_16khz = self._convert_inbound_audio(raw_audio)
+                        await self.emit_audio(pcm_16khz)
                 elif event_type == "start":
                     self._stream_id = message.get("stream_id")
                     start_info = message.get("start", {})
                     media_format = start_info.get("media_format", {})
+                    # Detect actual inbound codec from Telnyx
+                    if media_format:
+                        self._inbound_encoding = media_format.get("encoding", "L16")
+                        self._inbound_sample_rate = int(media_format.get("sample_rate", 16000))
                     logger.info(
-                        "Media stream started: stream_id=%s, media_format=%s",
+                        "Media stream started: stream_id=%s, inbound_codec=%s@%dHz (raw media_format=%s)",
                         self._stream_id,
+                        self._inbound_encoding,
+                        self._inbound_sample_rate,
                         media_format,
                     )
+                    if self._inbound_encoding != "L16":
+                        logger.warning(
+                            "Inbound codec is %s, not L16 — will convert to 16kHz PCM on receive path",
+                            self._inbound_encoding,
+                        )
                 elif event_type == "stop":
                     logger.info("Media stream stopped for conversation %s", self.conversation_id)
                     break
