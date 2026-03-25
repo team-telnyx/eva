@@ -661,10 +661,10 @@ class BenchmarkRunner:
                 logger.info("All rerun records now pass validation!")
                 break
 
+        await self._stop_support_services()
+
         if pending_ids:
             logger.warning(f"{len(pending_ids)} tasks still failing after {max_attempts} attempts")
-
-        await self._stop_support_services()
 
         # STEP 4: Optionally run metrics
         final_failed_ids = set(pending_ids)
