@@ -119,6 +119,24 @@ class AudioLLMConfig(BaseModel):
     tts_params: dict[str, Any] = Field({}, description="Additional TTS model parameters (JSON)")
 
 
+class TelephonyBridgeConfig(BaseModel):
+    """Configuration for benchmarking an external voice assistant via SIP."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sip_uri: str = Field(description="SIP URI of the external assistant")
+    webhook_port: int = Field(8888, description="Port for the tool webhook service")
+    webhook_base_url: str = Field(description="Public URL for tool webhooks (e.g., ngrok URL)")
+    stt: str | None = Field(None, description="STT model used for transcript generation")
+    stt_params: dict[str, Any] = Field({}, description="Additional STT model parameters (JSON)")
+
+    @field_validator("webhook_base_url")
+    @classmethod
+    def _normalize_webhook_base_url(cls, value: str) -> str:
+        """Normalize webhook_base_url by removing a trailing slash."""
+        return value.rstrip("/")
+
+
 _PIPELINE_FIELDS = {
     "llm",
     "stt",
@@ -131,16 +149,21 @@ _PIPELINE_FIELDS = {
 }
 _S2S_FIELDS = {"s2s", "s2s_params"}
 _AUDIO_LLM_FIELDS = {"audio_llm", "audio_llm_params", "tts", "tts_params"}
+_TELEPHONY_FIELDS = {"sip_uri", "webhook_port", "webhook_base_url", "stt", "stt_params"}
 
 
 def _model_config_discriminator(data: Any) -> str:
     """Discriminate which pipeline config type to use based on unique fields."""
     if isinstance(data, dict):
+        if "sip_uri" in data:
+            return "telephony_bridge"
         if "audio_llm" in data:
             return "audio_llm"
         if "s2s" in data:
             return "s2s"
         return "pipeline"
+    if isinstance(data, TelephonyBridgeConfig):
+        return "telephony_bridge"
     if isinstance(data, AudioLLMConfig):
         return "audio_llm"
     if isinstance(data, SpeechToSpeechConfig):
@@ -176,12 +199,14 @@ def _strip_other_mode_fields(data: dict) -> dict:
     has_llm = bool(data.get("llm") or data.get("llm_model"))
     has_s2s = bool(data.get("s2s"))
     has_audio_llm = bool(data.get("audio_llm"))
+    has_telephony = bool(data.get("sip_uri"))
     active = [
         name
         for flag, name in [
             (has_llm, "EVA_MODEL__LLM"),
             (has_s2s, "EVA_MODEL__S2S"),
             (has_audio_llm, "EVA_MODEL__AUDIO_LLM"),
+            (has_telephony, "EVA_MODEL__SIP_URI"),
         ]
         if flag
     ]
@@ -197,6 +222,8 @@ def _strip_other_mode_fields(data: dict) -> dict:
         return {k: v for k, v in data.items() if k in _AUDIO_LLM_FIELDS}
     if mode == "s2s":
         return {k: v for k, v in data.items() if k in _S2S_FIELDS}
+    if mode == "telephony_bridge":
+        return {k: v for k, v in data.items() if k in _TELEPHONY_FIELDS}
     # pipeline: keep pipeline fields + any legacy fields the model_validator handles
     return {k: v for k, v in data.items() if k in _PIPELINE_FIELDS}
 
@@ -205,7 +232,8 @@ def _strip_other_mode_fields(data: dict) -> dict:
 ModelConfigUnion = Annotated[
     Annotated[PipelineConfig, Tag("pipeline")]
     | Annotated[SpeechToSpeechConfig, Tag("s2s")]
-    | Annotated[AudioLLMConfig, Tag("audio_llm")],
+    | Annotated[AudioLLMConfig, Tag("audio_llm")]
+    | Annotated[TelephonyBridgeConfig, Tag("telephony_bridge")],
     Discriminator(_model_config_discriminator),
 ]
 
