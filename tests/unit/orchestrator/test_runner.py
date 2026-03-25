@@ -283,3 +283,39 @@ class TestSupportServices:
         mock_manager.delete_assistant.assert_awaited_once_with("assistant-123")
         mock_manager.close.assert_awaited_once()
         assert runner.config.model.telnyx_assistant_id is None
+
+    @pytest.mark.asyncio
+    async def test_call_control_does_not_install_webrtc_helper(self, tmp_path, monkeypatch):
+        config = _make_config(tmp_path)
+        config = config.model_copy(
+            update={
+                "model": TelephonyBridgeConfig(
+                    transport="call_control",
+                    sip_uri="sip:test@example.com",
+                    telnyx_api_key="telnyx-key",
+                    call_control_stream_url="wss://stream.example.com/media",
+                    call_control_connection_id="connection-123",
+                    call_control_from="+15551234567",
+                    webhook_base_url="https://example.com",
+                    webhook_port=9988,
+                )
+            }
+        )
+        runner = _make_runner(config)
+
+        mock_service = MagicMock()
+        mock_service.start = AsyncMock()
+        mock_service.stop = AsyncMock()
+        service_ctor = MagicMock(return_value=mock_service)
+        ensure_helper = AsyncMock()
+
+        monkeypatch.setattr("eva.orchestrator.runner.ToolWebhookService", service_ctor)
+        monkeypatch.setattr("eva.orchestrator.runner.ensure_telnyx_webrtc_helper_dependencies", ensure_helper)
+
+        await runner._start_support_services()
+
+        ensure_helper.assert_not_awaited()
+        service_ctor.assert_called_once_with(port=9988)
+        mock_service.start.assert_awaited_once()
+
+        await runner._stop_support_services()

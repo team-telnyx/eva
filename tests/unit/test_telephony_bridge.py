@@ -209,3 +209,51 @@ class TestTelephonyBridgeServer:
             "conversation_id": "conv-1",
             "webhook_base_url": "https://example.com",
         }
+
+    def test_default_transport_factory_uses_call_control_when_selected(self, tmp_path: Path, monkeypatch):
+        bridge, _transport = _make_bridge(tmp_path)
+        bridge.bridge_config = TelephonyBridgeConfig(
+            transport="call_control",
+            sip_uri="sip:test@example.com",
+            telnyx_api_key="telnyx-key",
+            call_control_stream_url="wss://stream.example.com/media",
+            call_control_connection_id="connection-123",
+            call_control_from="+15551234567",
+            webhook_base_url="https://example.com",
+        )
+
+        created: dict[str, str] = {}
+
+        class _FakeCallControlTransport:
+            def __init__(
+                self,
+                api_key: str,
+                to: str,
+                stream_url: str,
+                connection_id: str,
+                from_number: str,
+                conversation_id: str,
+                webhook_base_url: str,
+            ):
+                created["api_key"] = api_key
+                created["to"] = to
+                created["stream_url"] = stream_url
+                created["connection_id"] = connection_id
+                created["from_number"] = from_number
+                created["conversation_id"] = conversation_id
+                created["webhook_base_url"] = webhook_base_url
+
+        monkeypatch.setattr("eva.assistant.transports.CallControlTransport", _FakeCallControlTransport)
+
+        transport = bridge._default_transport_factory(bridge.bridge_config, "conv-1")
+
+        assert isinstance(transport, _FakeCallControlTransport)
+        assert created == {
+            "api_key": "telnyx-key",
+            "to": "sip:test@example.com",
+            "stream_url": "wss://stream.example.com/media",
+            "connection_id": "connection-123",
+            "from_number": "+15551234567",
+            "conversation_id": "conv-1",
+            "webhook_base_url": "https://example.com",
+        }
