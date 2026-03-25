@@ -211,7 +211,13 @@ class CallControlTransport(BaseTelephonyTransport):
                         await self.emit_audio(audio_bytes)
                 elif event_type == "start":
                     self._stream_id = message.get("stream_id")
-                    logger.info("Media stream started: stream_id=%s", self._stream_id)
+                    start_info = message.get("start", {})
+                    media_format = start_info.get("media_format", {})
+                    logger.info(
+                        "Media stream started: stream_id=%s, media_format=%s",
+                        self._stream_id,
+                        media_format,
+                    )
                 elif event_type == "stop":
                     logger.info("Media stream stopped for conversation %s", self.conversation_id)
                     break
