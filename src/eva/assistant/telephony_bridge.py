@@ -424,24 +424,46 @@ class TelephonyBridgeServer:
                     await self._tool_webhook_register_callback(cc_id)
                     logger.info("Registered call_control_id %s for tool webhooks", cc_id)
 
-            while True:
-                message = await websocket.receive_text()
-                payload = json.loads(message)
-                event = payload.get("event")
+            # Monitor both the user sim WebSocket and the transport disconnect event.
+            # When the Telnyx assistant hangs up, the media stream closes and
+            # _disconnected_event fires — we should end the session cleanly
+            # instead of waiting for the user sim to time out.
+            transport_done = asyncio.create_task(self._transport._disconnected_event.wait())
+            try:
+                while True:
+                    ws_receive = asyncio.create_task(websocket.receive_text())
+                    done, _ = await asyncio.wait(
+                        [ws_receive, transport_done],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
 
-                if event == "media":
-                    audio_base64 = payload.get("media", {}).get("payload", "")
-                    pcm_audio = base64.b64decode(audio_base64) if audio_base64 else b""
-                    if pcm_audio:
-                        assert self._session_state is not None
-                        offset_seconds = self._elapsed_seconds()
-                        self._session_state.add_chunk("user", pcm_audio, offset_seconds)
-                        await self._transport.send_audio(pcm_audio)
-                elif event == "stop":
-                    logger.info(f"Received stop event for {self.conversation_id}")
-                    break
-                else:
-                    logger.debug(f"Ignoring telephony bridge event '{event}'")
+                    if transport_done in done:
+                        ws_receive.cancel()
+                        logger.info(
+                            "Telnyx call ended (assistant hung up) for %s — ending session",
+                            self.conversation_id,
+                        )
+                        break
+
+                    message = ws_receive.result()
+                    payload = json.loads(message)
+                    event = payload.get("event")
+
+                    if event == "media":
+                        audio_base64 = payload.get("media", {}).get("payload", "")
+                        pcm_audio = base64.b64decode(audio_base64) if audio_base64 else b""
+                        if pcm_audio:
+                            assert self._session_state is not None
+                            offset_seconds = self._elapsed_seconds()
+                            self._session_state.add_chunk("user", pcm_audio, offset_seconds)
+                            await self._transport.send_audio(pcm_audio)
+                    elif event == "stop":
+                        logger.info(f"Received stop event for {self.conversation_id}")
+                        break
+                    else:
+                        logger.debug(f"Ignoring telephony bridge event '{event}'")
+            finally:
+                transport_done.cancel()
 
         except WebSocketDisconnect:
             logger.info(f"Telephony bridge websocket disconnected for {self.conversation_id}")
