@@ -33,6 +33,7 @@ class ToolWebhookService:
         self._lock = asyncio.Lock()
         self._conversations: dict[str, _ConversationRegistration] = {}
         self._conversation_map: dict[str, str] = {}  # eva_call_id → telnyx_conversation_id
+        self._record_ids: dict[str, str] = {}  # eva_call_id → eva_record_id
 
         self._app = FastAPI()
         self._server: uvicorn.Server | None = None
@@ -137,6 +138,10 @@ class ToolWebhookService:
         """Return the Telnyx conversation_id for a given eva_call_id, if known."""
         return self._conversation_map.get(eva_call_id)
 
+    def set_record_id(self, eva_call_id: str, record_id: str) -> None:
+        """Associate an EVA record_id with an eva_call_id for conversation tagging."""
+        self._record_ids[eva_call_id] = record_id
+
     async def get_audit_log(self, call_id: str) -> AuditLog | None:
         """Return the audit log for a registered conversation."""
         async with self._lock:
@@ -188,9 +193,12 @@ class ToolWebhookService:
             response: dict = {"dynamic_variables": {}}
             if eva_call_id:
                 response["dynamic_variables"]["eva_call_id"] = eva_call_id
-                response["conversation"] = {
-                    "metadata": {"eva_call_id": eva_call_id}
-                }
+                metadata: dict[str, str] = {"eva_call_id": eva_call_id}
+                # Tag with record_id if registered (for filtering conversations by scenario)
+                record_id = self._record_ids.get(eva_call_id)
+                if record_id:
+                    metadata["eva_record_id"] = record_id
+                response["conversation"] = {"metadata": metadata}
             return response
 
         @self._app.post("/tools/{call_id}/{tool_name}")

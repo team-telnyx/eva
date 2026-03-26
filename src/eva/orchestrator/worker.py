@@ -281,6 +281,7 @@ class ConversationWorker:
 
             async def _register_eva_call_id(eva_call_id: str) -> None:
                 await webhook_service.register_route_id(eva_call_id, record_id)
+                webhook_service.set_record_id(eva_call_id, record_id)
 
             bridge._tool_webhook_register_callback = _register_eva_call_id
             bridge._conversation_id_resolver = webhook_service.get_telnyx_conversation_id
