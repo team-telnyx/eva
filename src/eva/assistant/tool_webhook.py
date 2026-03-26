@@ -204,7 +204,7 @@ class ToolWebhookService:
             """Accept Telnyx Call Control media stream connections."""
             from eva.assistant.transports.call_control import get_active_transport
 
-            transport = get_active_transport(conversation_id)
+            transport = await get_active_transport(conversation_id)
             if transport is None:
                 logger.warning("No active transport for media stream conversation %s", conversation_id)
                 await websocket.close(code=1008, reason="No active transport for this conversation")

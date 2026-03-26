@@ -102,6 +102,16 @@ https://your-domain.ngrok-free.dev/tools/{{call_control_id}}/{tool_name}
 
 The `{{call_control_id}}` dynamic variable is resolved by Telnyx at runtime.
 
+## Post-Call Enrichment
+
+After each call ends, the bridge fetches the full conversation history from the Telnyx Conversations API using the call's `call_control_id`. This enriches the local audit log with:
+
+- **User and assistant speech turns** — the local audit log only captures tool calls; the API provides the full transcript
+- **Server-side latency metrics** — `end_user_perceived_latency_ms` from assistant message metadata
+- **Tool call/response pairs** — complete with function arguments and results
+
+This enables EVA's metrics processor to score task completion and conversation quality even though the assistant ran as an opaque black box.
+
 ## Stable ngrok Domain (Required)
 
 Ephemeral ngrok URLs change on every restart, causing silent webhook mismatches. EVA rejects them and requires a stable domain:

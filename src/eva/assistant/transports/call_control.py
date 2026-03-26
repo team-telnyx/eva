@@ -25,13 +25,16 @@ _CALL_CONNECT_TIMEOUT_SECONDS = 60.0
 _REQUEST_TIMEOUT_SECONDS = 30.0
 
 # Global registry: conversation_id → CallControlTransport
-# The ToolWebhookService uses this to route incoming media stream connections
+# The ToolWebhookService uses this to route incoming media stream connections.
+# Protected by _registry_lock for safe concurrent access from multiple async tasks.
 _active_transports: dict[str, "CallControlTransport"] = {}
+_registry_lock = asyncio.Lock()
 
 
-def get_active_transport(conversation_id: str) -> "CallControlTransport | None":
+async def get_active_transport(conversation_id: str) -> "CallControlTransport | None":
     """Look up the transport for a conversation (used by media stream WS handler)."""
-    return _active_transports.get(conversation_id)
+    async with _registry_lock:
+        return _active_transports.get(conversation_id)
 
 
 class CallControlTransport(BaseTelephonyTransport):
@@ -94,7 +97,8 @@ class CallControlTransport(BaseTelephonyTransport):
         )
 
         # Register ourselves so the webhook WS handler can route the stream to us
-        _active_transports[self.conversation_id] = self
+        async with _registry_lock:
+            _active_transports[self.conversation_id] = self
 
         try:
             # Build WSS URL for the media stream on the shared webhook server
@@ -130,7 +134,8 @@ class CallControlTransport(BaseTelephonyTransport):
 
     async def stop(self) -> None:
         # Unregister from global registry
-        _active_transports.pop(self.conversation_id, None)
+        async with _registry_lock:
+            _active_transports.pop(self.conversation_id, None)
 
         if self._call_control_id and not self._disconnected_event.is_set():
             try:
