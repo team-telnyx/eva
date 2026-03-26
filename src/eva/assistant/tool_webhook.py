@@ -105,15 +105,21 @@ class ToolWebhookService:
             self._unique_registrations.add(id(registration))
         logger.info(f"Registered tool webhook conversation {call_id}")
 
-    async def add_alias(self, alias: str, primary_call_id: str) -> None:
-        """Register an additional key that routes to the same conversation as primary_call_id."""
+    async def register_call_control_id(self, call_control_id: str, record_id: str) -> None:
+        """Register the call_control_id so tool webhook requests can be routed.
+
+        The Telnyx assistant resolves ``{{call_control_id}}`` in webhook URLs to
+        the same call_control_id returned by the Call Control API when the call
+        was placed. This registers that ID to route to the existing conversation
+        registered under ``record_id``.
+        """
         async with self._lock:
-            registration = self._conversations.get(primary_call_id)
+            registration = self._conversations.get(record_id)
             if registration is None:
-                logger.warning("Cannot alias %s → %s: primary not found", alias, primary_call_id)
+                logger.warning("Cannot register cc_id %s: record %s not found", call_control_id, record_id)
                 return
-            self._conversations[alias] = registration
-        logger.info("Registered tool webhook alias %s → %s", alias, primary_call_id)
+            self._conversations[call_control_id] = registration
+        logger.info("Registered call_control_id %s for conversation %s", call_control_id, record_id)
 
     async def unregister_conversation(self, call_id: str) -> None:
         """Remove a conversation (and all its aliases) from the webhook registry."""
@@ -156,34 +162,9 @@ class ToolWebhookService:
                 from urllib.parse import unquote
                 registration = await self._get_registration(unquote(call_id))
             if registration is None:
-                # Fallback: {{call_control_id}} in tool URLs resolves to the
-                # assistant's B-leg CC ID, which we don't know in advance.
-                # The worker's _register_cc_id callback normally adds this as
-                # an alias after call placement, but a race is possible if the
-                # first tool call arrives before the alias is registered.
-                #
-                # Safety net: if exactly one conversation is active, auto-route
-                # there. With concurrent calls this is disabled to prevent
-                # misrouting — the alias must be registered first.
-                async with self._lock:
-                    unique_count = len(self._unique_registrations)
-                    if unique_count == 1:
-                        registration = next(iter(self._conversations.values()))
-                        self._conversations[call_id] = registration
-                if registration is not None:
-                    logger.info(
-                        "Auto-registered unknown call_id %s (B-leg) → sole active conversation",
-                        call_id,
-                    )
-            if registration is None:
-                async with self._lock:
-                    unique_count = len(self._unique_registrations)
-                    known_keys = list(self._conversations.keys())
                 logger.warning(
-                    "Tool webhook 404: call_id=%s not found among %d active conversation(s) "
-                    "(keys: %s). If running concurrent calls, ensure the call_control_id alias "
-                    "is registered before the first tool call arrives.",
-                    call_id, unique_count, known_keys,
+                    "Tool webhook 404: call_id=%s not found in registered conversations",
+                    call_id,
                 )
                 raise HTTPException(status_code=404, detail=f"Unknown call_id: {call_id}")
 

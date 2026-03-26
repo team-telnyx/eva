@@ -277,7 +277,7 @@ class ConversationWorker:
             record_id = self.record.id
 
             async def _register_cc_id(call_control_id: str) -> None:
-                await webhook_service.add_alias(call_control_id, record_id)
+                await webhook_service.register_call_control_id(call_control_id, record_id)
 
             bridge._tool_webhook_register_callback = _register_cc_id
 
