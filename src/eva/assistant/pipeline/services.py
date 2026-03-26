@@ -265,6 +265,15 @@ def create_tts_service(
         chatterbox_tts._settings.language = language_code
         return chatterbox_tts
 
+    elif model_lower == "deepgram":
+        logger.info(f"Using Deepgram TTS: {params['model']}")
+        return DeepgramTTSService(
+            api_key=api_key,
+            model=params["model"],
+            voice=params.get("voice", "aura-2-helena-en"),
+            sample_rate=SAMPLE_RATE,
+        )
+
     elif model_lower == "elevenlabs":
         logger.info(f"Using ElevenLabs TTS: {params['model']}")
         return ElevenLabsTTSService(
@@ -343,15 +352,6 @@ def create_tts_service(
         OpenAITTSService.run_tts = override_run_tts
         xtts_tts._settings.language = language_code
         return xtts_tts
-
-    elif model_lower == "deepgram":
-        logger.info(f"Using Deepgram TTS: {params['model']}")
-        return DeepgramTTSService(
-            api_key=api_key,
-            model=params["model"],
-            voice=params.get("voice", "aura-2-helena-en"),
-            sample_rate=SAMPLE_RATE,
-        )
 
     else:
         raise ValueError(
