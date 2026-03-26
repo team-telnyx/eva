@@ -71,6 +71,11 @@ class CallControlTransport(BaseTelephonyTransport):
         self._disconnected_event = asyncio.Event()
         self._send_lock = asyncio.Lock()
 
+        # Inbound codec — updated from the "start" event's media_format.
+        # Defaults assume L16 16kHz; overridden once the stream reports actual format.
+        self._inbound_encoding: str = "L16"
+        self._inbound_sample_rate: int = 16000
+
     async def start(self) -> None:
         if self._session is not None:
             logger.warning("Call Control transport already started for %s", self.to)
@@ -147,6 +152,16 @@ class CallControlTransport(BaseTelephonyTransport):
         self._call_control_id = None
         self._connected_event.clear()
 
+    def _convert_outbound_audio(self, pcm_16khz: bytes) -> bytes:
+        """Downsample 16kHz PCM to match the stream's actual sample rate if needed."""
+        if self._inbound_sample_rate >= 16000:
+            return pcm_16khz
+        # Downsample 16kHz → stream rate (typically 8kHz)
+        converted, _ = audioop.ratecv(
+            pcm_16khz, 2, 1, 16000, self._inbound_sample_rate, None
+        )
+        return converted
+
     async def send_audio(self, audio_data: bytes) -> None:
         if not audio_data:
             return
@@ -157,11 +172,12 @@ class CallControlTransport(BaseTelephonyTransport):
                 return
 
             try:
+                outbound = self._convert_outbound_audio(audio_data)
                 await self._stream_ws.send_text(
                     json.dumps({
                         "event": "media",
                         "media": {
-                            "payload": base64.b64encode(audio_data).decode("ascii"),
+                            "payload": base64.b64encode(outbound).decode("ascii"),
                         },
                     })
                 )
@@ -210,13 +226,6 @@ class CallControlTransport(BaseTelephonyTransport):
         self._stream_ws = websocket
         self._connected_event.set()
         self._disconnected_event.clear()
-
-        # Inbound codec — set from the "start" event's media_format.
-        # Defaults assume L16 16kHz (what we requested), overridden once we
-        # get the actual format from Telnyx.
-        self._inbound_encoding: str = "L16"
-        self._inbound_sample_rate: int = 16000
-
         logger.info("Telnyx media stream connected for conversation %s", self.conversation_id)
 
         try:
