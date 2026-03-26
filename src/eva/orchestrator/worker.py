@@ -293,6 +293,7 @@ class ConversationWorker:
 
     async def _start_user_simulator(self) -> None:
         """Start the user simulator."""
+        is_telephony = isinstance(self.config.model, TelephonyBridgeConfig)
         self._user_simulator = UserSimulator(
             current_date_time=self.record.current_date_time,
             persona_config=self.record.user_config,
@@ -300,6 +301,7 @@ class ConversationWorker:
             server_url=f"ws://localhost:{self.port}/ws",
             output_dir=self.output_dir,
             user_simulator_context=self.agent.user_simulator_context,
+            audio_codec="pcm" if is_telephony else "mulaw",
         )
 
     async def _run_conversation(self) -> str:

@@ -4,8 +4,7 @@ This implements the ElevenLabs AudioInterface to bridge between:
 - ElevenLabs (user simulator) generating audio
 - Assistant server receiving and responding with audio
 
-Uses JSON + base64 encoding. When connected to the telephony bridge, audio is
-16kHz 16-bit PCM (L16) end-to-end — no μ-law conversion needed.
+Uses JSON + base64 μ-law encoding (Twilio-style protocol).
 """
 
 import asyncio
@@ -16,6 +15,11 @@ from typing import Callable, Optional
 import websockets
 from websockets.protocol import State as WebSocketState
 
+try:
+    import audioop
+except ImportError:
+    import audioop_lts as audioop
+
 from elevenlabs.conversational_ai.conversation import AudioInterface
 
 from eva.utils.logging import get_logger
@@ -25,8 +29,9 @@ logger = get_logger(__name__)
 
 # Audio format constants
 PCM_SAMPLE_WIDTH = 2  # 16-bit PCM = 2 bytes per sample
-ASSISTANT_SAMPLE_RATE = 16000  # Assistant uses 16kHz L16 PCM (matches ElevenLabs native rate)
+ASSISTANT_SAMPLE_RATE = 8000  # Assistant uses 8kHz μ-law
 ELEVENLABS_OUTPUT_RATE = 16000  # ElevenLabs outputs 16kHz PCM
+ELEVENLABS_INPUT_FORMAT = "mulaw"  # ElevenLabs configured to accept μ-law 8kHz directly
 
 # Chunk sizes for real-time streaming
 SEND_CHUNK_DURATION_MS = 20  # Send 20ms chunks to simulate real-time
@@ -69,6 +74,7 @@ class BotToBotAudioInterface(AudioInterface):
         record_callback: Optional[Callable[[str, bytes], None]] = None,
         event_logger=None,
         conversation_done_callback: Optional[Callable[[str], None]] = None,
+        codec: str = "mulaw",
     ):
         """Initialize the audio interface.
 
@@ -78,12 +84,15 @@ class BotToBotAudioInterface(AudioInterface):
             record_callback: Optional callback for recording audio (source, data)
             event_logger: Optional ElevenLabsEventLogger for logging audio timing
             conversation_done_callback: Optional callback for signaling conversation end
+            codec: Audio codec for the assistant connection. "mulaw" (default) for
+                Pipecat/Twilio-style 8kHz μ-law, "pcm" for 16kHz L16 PCM (telephony bridge).
         """
         self.websocket_uri = websocket_uri
         self.conversation_id = conversation_id
         self.record_callback = record_callback
         self.event_logger = event_logger
         self.conversation_done_callback = conversation_done_callback
+        self.codec = codec
 
         self.websocket = None
         self.running = False
@@ -242,19 +251,43 @@ class BotToBotAudioInterface(AudioInterface):
         # Don't clear the send queue - let the user keep talking
         pass
 
-    @staticmethod
-    def _prepare_audio_for_send(pcm_data: bytes) -> bytes:
-        """Prepare PCM audio for sending to assistant.
+    def _prepare_outbound_audio(self, pcm_data: bytes) -> bytes:
+        """Prepare PCM audio for sending to the assistant server.
 
-        With L16 codec, ElevenLabs 16kHz PCM is sent directly — no conversion needed.
+        In mulaw mode (default/Pipecat): downsamples 16kHz→8kHz and converts to μ-law.
+        In pcm mode (telephony bridge): passthrough (16kHz L16 PCM).
+        """
+        if self.codec == "pcm":
+            return pcm_data
+        return self._convert_pcm_to_mulaw(pcm_data)
+
+    @staticmethod
+    def _convert_pcm_to_mulaw(pcm_data: bytes) -> bytes:
+        """Convert PCM audio to mulaw format for sending to assistant.
 
         Args:
             pcm_data: 16-bit PCM audio data at 16kHz (from ElevenLabs output)
 
         Returns:
-            16-bit PCM audio data at 16kHz (passthrough)
+            mulaw encoded audio data at 8kHz (for assistant)
         """
-        return pcm_data
+        try:
+            # Downsample from 16kHz to 8kHz
+            pcm_8khz, _ = audioop.ratecv(
+                pcm_data,
+                PCM_SAMPLE_WIDTH,  # 16-bit PCM
+                1,  # mono
+                ELEVENLABS_OUTPUT_RATE,  # from 16kHz
+                ASSISTANT_SAMPLE_RATE,  # to 8kHz
+                None,
+            )
+
+            # Convert 16-bit PCM to μ-law
+            mulaw_data = audioop.lin2ulaw(pcm_8khz, PCM_SAMPLE_WIDTH)
+            return mulaw_data
+        except Exception as e:
+            logger.warning(f"Error converting PCM to mulaw: {e}")
+            return b""
 
     def _should_send_assistant_silence(self) -> bool:
         """Return True if we should send assistant silence (user stopped, waiting for assistant).
@@ -286,22 +319,22 @@ class BotToBotAudioInterface(AudioInterface):
             return self._assistant_audio_ended_time > self._user_audio_ended_time
         return True
 
-    async def _send_audio_frame(self, pcm_data: bytes) -> bool:
+    async def _send_audio_frame(self, mulaw_data: bytes) -> bool:
         """Send an audio frame to the websocket.
 
         Args:
-            pcm_data: 16-bit PCM audio at ASSISTANT_SAMPLE_RATE (16kHz)
+            mulaw_data: μ-law audio at ASSISTANT_SAMPLE_RATE (8kHz)
 
         Returns:
             True if sent successfully
         """
-        if not self.websocket or not pcm_data:
+        if not self.websocket or not mulaw_data:
             return False
         # Don't attempt to send if websocket is closed or we're stopping
         if self._stopping or self.websocket.state != WebSocketState.OPEN:
             return False
         try:
-            audio_base64 = base64.b64encode(pcm_data).decode("utf-8")
+            audio_base64 = base64.b64encode(mulaw_data).decode("utf-8")
             message = {"event": "media", "conversation_id": self.conversation_id, "media": {"payload": audio_base64}}
             await self.websocket.send(json.dumps(message))
             return True
@@ -310,7 +343,7 @@ class BotToBotAudioInterface(AudioInterface):
             return False
 
     async def _send_silence_frame(self, chunk_size: int = SEND_CHUNK_SIZE_PCM) -> bool:
-        """Send a silence frame to the websocket.
+        """Send a silence tone frame to the websocket (for debugging silence periods).
 
         Args:
             chunk_size: Size of chunk in bytes (at 16kHz PCM)
@@ -318,8 +351,13 @@ class BotToBotAudioInterface(AudioInterface):
         Returns:
             True if silence was sent, False otherwise
         """
+        # Create PCM silence and convert to μ-law
         silence_pcm = b"\x00" * chunk_size
-        return await self._send_audio_frame(silence_pcm)
+        silence_out = self._prepare_outbound_audio(silence_pcm)
+
+        if not silence_out:
+            return False
+        return await self._send_audio_frame(silence_out)
 
     async def _send_catchup_silence(self, source: str, num_chunks: int) -> None:
         """Send catch-up silence frames to cover detection delay.
@@ -394,9 +432,13 @@ class BotToBotAudioInterface(AudioInterface):
         from a real microphone. When there's audio from the assistant, we send that.
         When there's no audio, we send silence.
         """
-        # Calculate chunk size: 16kHz PCM, 250ms chunks
-        # 16000 samples/sec * 0.25s * 2 bytes/sample = 8000 bytes
-        samples_per_chunk = int(ASSISTANT_SAMPLE_RATE * self.INPUT_CHUNK_DURATION) * PCM_SAMPLE_WIDTH
+        # Calculate chunk size based on codec:
+        # mulaw: 8kHz, 1 byte/sample → 8000 * 0.25 = 2000 bytes
+        # pcm:   16kHz, 2 bytes/sample → 16000 * 0.25 * 2 = 8000 bytes
+        if self.codec == "pcm":
+            samples_per_chunk = int(ELEVENLABS_OUTPUT_RATE * self.INPUT_CHUNK_DURATION) * PCM_SAMPLE_WIDTH
+        else:
+            samples_per_chunk = int(ASSISTANT_SAMPLE_RATE * self.INPUT_CHUNK_DURATION)
 
         logger.info(
             f"Starting continuous input stream (chunk: {samples_per_chunk} bytes, interval: {self.INPUT_CHUNK_DURATION}s)"
@@ -438,16 +480,16 @@ class BotToBotAudioInterface(AudioInterface):
                 if current_time - self._assistant_audio_ended_time > SILENCE_DETECTION_THRESHOLD_S:
                     await self._on_assistant_audio_end()
             else:
-                # Pad with silence if needed (PCM silence = 0x00)
+                # Pad with silence if needed (μ-law silence = 0xFF)
                 if len(audio_chunk) < samples_per_chunk:
                     padding_needed = samples_per_chunk - len(audio_chunk)
                     consecutive_empty_chunks += 1
-                    audio_chunk += b"\x00" * padding_needed
+                    silence_byte = b"\x00" if self.codec == "pcm" else b"\xff"
+                    audio_chunk += silence_byte * padding_needed
                     if padding_needed == samples_per_chunk:
                         assistant_silence = True
 
             if self.input_callback:
-                # Audio is already 16kHz PCM — pass directly to ElevenLabs
                 self.input_callback(audio_chunk)
 
             # Send assistant silence while waiting for assistant to respond
@@ -484,8 +526,8 @@ class BotToBotAudioInterface(AudioInterface):
                     if event == "media":
                         payload = data.get("media", {}).get("payload", "")
                         if payload:
-                            pcm_audio = base64.b64decode(payload)
-                            if pcm_audio:
+                            mulaw_audio = base64.b64decode(payload)
+                            if mulaw_audio:
                                 # Mark start of assistant audio on first chunk
                                 if not self._assistant_audio_active:
                                     self._on_assistant_audio_start()
@@ -494,11 +536,11 @@ class BotToBotAudioInterface(AudioInterface):
                                 self._assistant_audio_ended_time = asyncio.get_event_loop().time()
                                 if audio_chunks_received % LOG_INTERVAL_AUDIO_RECV == 1:
                                     logger.debug(
-                                        f"← Received audio chunk {audio_chunks_received} ({len(pcm_audio)} bytes)"
+                                        f"← Received audio chunk {audio_chunks_received} ({len(mulaw_audio)} bytes)"
                                     )
 
-                                # Pass 16kHz PCM audio to buffer for ElevenLabs
-                                await self.audio_buffer.put(pcm_audio)
+                                # Pass μ-law audio directly to ElevenLabs (configured for mulaw input)
+                                await self.audio_buffer.put(mulaw_audio)
 
                     elif event == "stop":
                         # Assistant server signaled end of conversation (e.g. hangup).
@@ -601,8 +643,9 @@ class BotToBotAudioInterface(AudioInterface):
                         if not self._user_audio_active:
                             self._on_user_audio_start()
 
-                        # Send PCM directly (L16 — no codec conversion needed)
-                        if await self._send_audio_frame(chunk):
+                        # Convert to μ-law and send
+                        outbound_audio = self._prepare_outbound_audio(chunk)
+                        if outbound_audio and await self._send_audio_frame(outbound_audio):
                             audio_chunks_sent += 1
                             # Calculate next send time based on absolute target (prevents drift)
                             next_send_time = stream_start_time + (audio_chunks_sent * send_interval)
@@ -621,7 +664,8 @@ class BotToBotAudioInterface(AudioInterface):
                             aligned_len = (original_len // PCM_SAMPLE_WIDTH) * PCM_SAMPLE_WIDTH
                             padded_chunk = pending_audio[:aligned_len] + b"\x00" * (pcm_chunk_size - aligned_len)
 
-                            if await self._send_audio_frame(padded_chunk):
+                            outbound_audio = self._prepare_outbound_audio(padded_chunk)
+                            if outbound_audio and await self._send_audio_frame(outbound_audio):
                                 audio_chunks_sent += 1
                                 logger.info(
                                     f"Sent padded chunk ({original_len} bytes padded to {pcm_chunk_size}) - end of utterance"
@@ -685,7 +729,8 @@ class BotToBotAudioInterface(AudioInterface):
         # Send remaining audio on shutdown
         if pending_audio and self.websocket:
             try:
-                if await self._send_audio_frame(pending_audio):
+                outbound_audio = self._prepare_outbound_audio(pending_audio)
+                if outbound_audio and await self._send_audio_frame(outbound_audio):
                     logger.info(f"Sent final {len(pending_audio)} bytes on shutdown")
             except Exception as e:
                 logger.warning(f"Error sending final audio: {e}")
