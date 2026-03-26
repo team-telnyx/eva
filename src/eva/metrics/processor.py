@@ -89,6 +89,8 @@ class _TurnExtractionState:
     # the user is interrupting the assistant (assistant_audio_open), this is the same utterance — skip the advance so
     # user_speech lands at the same turn.
     rollback_advance_consumed_by_user: bool = False
+    # Whether pipecat_agent had a single continuous audio stream (Telnyx telephony).
+    is_continuous_assistant_stream: bool = False
 
     def advance_turn_if_needed(self) -> None:
         """Advance turn if the assistant responded since the last user event.
@@ -463,6 +465,13 @@ def _pair_audio_segments(state: "_TurnExtractionState", context: "_ProcessorCont
         if segments:
             getattr(context, AUDIO_ATTR[role])[turn_idx] = segments
 
+    # Detect continuous assistant audio stream (e.g. Telnyx telephony bridge).
+    # Synthesis happens later in _synthesize_continuous_stream_timestamps using
+    # pipecat's measured response latencies for accuracy.
+    agent_keys = [k for k in state.audio_starts if k[0] == "pipecat_agent"]
+    if len(agent_keys) == 1:
+        state.is_continuous_assistant_stream = True
+
 
 def _validate_conversation_trace(
     conversation_trace: list[dict],
@@ -540,6 +549,7 @@ def _finalize_extraction(
     """Assign derived context variables, log results, and align turn keys across all sources."""
     context.assistant_interrupted_turns = state.assistant_interrupted_turns
     context.user_interrupted_turns = state.user_interrupted_turns
+    context.is_continuous_assistant_stream = state.is_continuous_assistant_stream
 
     all_interrupted = state.assistant_interrupted_turns | state.user_interrupted_turns
     if all_interrupted:
@@ -693,6 +703,9 @@ class _ProcessorContext:
         # Response latencies from Pipecat's UserBotLatencyObserver
         self.response_speed_latencies: list[float] = []
 
+        # Whether pipecat_agent had a single continuous audio stream (Telnyx telephony)
+        self.is_continuous_assistant_stream: bool = False
+
         # Unified timeline of all events from all log sources
         self.history: list[dict] = []
 
@@ -727,6 +740,7 @@ class MetricsContextProcessor:
             self._build_history(context, output_dir, result)
             self._extract_turns_from_history(context)
             self._load_response_latencies(context, output_dir)
+            self._synthesize_continuous_stream_timestamps(context)
             self._reconcile_transcript_with_tools(context)
 
             return context
@@ -936,6 +950,69 @@ class MetricsContextProcessor:
             logger.info(
                 f"Record {context.record_id}: Backfilled transcribed_user_turns[{last_user_turn_id}] "
                 f"from intended: {last_user_text[:50]}"
+            )
+
+    @staticmethod
+    def _synthesize_continuous_stream_timestamps(context: _ProcessorContext) -> None:
+        """Synthesize per-turn assistant audio timestamps for continuous streams.
+
+        For Telnyx telephony calls, pipecat_agent has a single audio_start/end for the
+        entire call (continuous RTP stream). Only turn 0 (greeting) gets real audio
+        timestamps. This method creates synthetic timestamps for other turns using
+        pipecat's measured response latencies (user_end + latency = assistant_start).
+        """
+        if not context.is_continuous_assistant_stream:
+            return
+        if not context.response_speed_latencies:
+            logger.warning(
+                f"Record {context.record_id}: Continuous assistant stream detected but no "
+                f"response latencies available — cannot synthesize assistant audio timestamps"
+            )
+            return
+
+        # Get user turns that have audio timestamps, sorted, excluding greeting (turn 0)
+        user_turns_with_audio = sorted(
+            k for k, v in context.audio_timestamps_user_turns.items()
+            if v is not None and k > 0
+        )
+        if not user_turns_with_audio:
+            return
+
+        latencies = context.response_speed_latencies
+        synthesized = []
+
+        for i, turn_id in enumerate(user_turns_with_audio):
+            if i >= len(latencies):
+                break  # More turns than latency measurements
+            user_segments = context.audio_timestamps_user_turns[turn_id]
+            if not user_segments:
+                continue
+
+            user_end = user_segments[-1][1]
+            latency = latencies[i]
+            assistant_start = user_end + latency
+
+            # Estimate end: use next user's audio_start or add a buffer
+            if i + 1 < len(user_turns_with_audio):
+                next_turn = user_turns_with_audio[i + 1]
+                next_user_segs = context.audio_timestamps_user_turns.get(next_turn)
+                if next_user_segs:
+                    assistant_end = next_user_segs[0][0]
+                else:
+                    assistant_end = assistant_start + 10.0
+            else:
+                assistant_end = assistant_start + 5.0
+
+            # Only set if turn doesn't already have real timestamps
+            existing = context.audio_timestamps_assistant_turns.get(turn_id)
+            if not existing:
+                context.audio_timestamps_assistant_turns[turn_id] = [(assistant_start, assistant_end)]
+                synthesized.append(turn_id)
+
+        if synthesized:
+            logger.info(
+                f"Record {context.record_id}: Synthesized assistant audio timestamps for "
+                f"continuous stream using response latencies (turns {synthesized})"
             )
 
     def _load_response_latencies(self, context: _ProcessorContext, output_dir: Path) -> bool:
