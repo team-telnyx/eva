@@ -91,6 +91,9 @@ class _TurnExtractionState:
     rollback_advance_consumed_by_user: bool = False
     # Whether pipecat_agent had a single continuous audio stream (Telnyx telephony).
     is_continuous_assistant_stream: bool = False
+    # Per-turn intended text from audit_log assistant events, used as fallback when
+    # pipecat tts_text events don't populate intended_assistant_turns for a given turn.
+    audit_log_intended_turns: dict[int, list[str]] = field(default_factory=dict)
 
     def advance_turn_if_needed(self) -> None:
         """Advance turn if the assistant responded since the last user event.
@@ -216,6 +219,8 @@ def _handle_audit_log_event(
     elif event["event_type"] == "assistant":
         turn = state.turn_num
         content = event["data"]
+        if not content:
+            return
         # Apply interruption prefix if this is the first assistant entry in a turn where assistant barged in
         # on the user.
         if turn in state.assistant_interrupted_turns:
@@ -236,6 +241,14 @@ def _handle_audit_log_event(
                 "_audit_source": True,
             }
         )
+        # Also populate intended_assistant_turns from audit_log as a fallback source.
+        # Pipecat tts_text events are the primary source (more granular), but for turns
+        # where pipecat events aren't available (e.g. Telnyx telephony bridge enriched
+        # from Conversations API), the audit_log provides the intended text.
+        # Track which turns got audit_log text; _finalize_extraction merges them only
+        # for turns that pipecat didn't already populate.
+        state.assistant_spoke_in_turn = True
+        state.audit_log_intended_turns.setdefault(turn, []).append(content)
 
     elif event["event_type"] in ("tool_call", "tool_response"):
         state.assistant_processed_in_turn = True
@@ -558,6 +571,14 @@ def _finalize_extraction(
             f"assistant interrupted user at turns {sorted(state.assistant_interrupted_turns)}, "
             f"user interrupted assistant at turns {sorted(state.user_interrupted_turns)}"
         )
+    # Merge audit_log intended text for turns that pipecat didn't populate.
+    # Pipecat tts_text is the primary source; audit_log/assistant is the fallback
+    # (e.g. Telnyx telephony bridge enriched from Conversations API).
+    for turn_id, texts in state.audit_log_intended_turns.items():
+        existing = context.intended_assistant_turns.get(turn_id, "")
+        if not existing:
+            context.intended_assistant_turns[turn_id] = "\n".join(texts)
+
     context.tool_params, context.tool_responses = extract_tool_params_and_responses(conversation_trace)
     context.tool_called = [t["tool_name"].lower() for t in context.tool_params]
     context.num_tool_calls = len(context.tool_params)
