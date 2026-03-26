@@ -818,8 +818,14 @@ class MetricsContextProcessor:
         Each entry: {timestamp_ms, source, event_type, data}.
         """
         history = self._load_audit_log_transcript(output_dir)
-        history.extend(self._load_pipecat_logs(result.pipecat_logs_path))
-        history.extend(self._load_elevenlabs_logs(result.elevenlabs_logs_path))
+        if result.pipecat_logs_path:
+            pipecat_path = Path(result.pipecat_logs_path)
+            if pipecat_path.exists() and pipecat_path.stat().st_size > 0:
+                history.extend(self._load_pipecat_logs(result.pipecat_logs_path))
+        if result.elevenlabs_logs_path:
+            elevenlabs_path = Path(result.elevenlabs_logs_path)
+            if elevenlabs_path.exists() and elevenlabs_path.stat().st_size > 0:
+                history.extend(self._load_elevenlabs_logs(result.elevenlabs_logs_path))
 
         history.sort(key=lambda e: e["timestamp_ms"])
         context.history = history

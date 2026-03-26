@@ -513,6 +513,11 @@ class TelephonyBridgeServer:
             for entry in transcript_entries:
                 transcript_file.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
+        # Enrich audit log with conversation messages from Telnyx API
+        # before saving, so the audit log has user/assistant speech events
+        # that the metrics processor needs for turn extraction.
+        await self._enrich_audit_log_from_api()
+
         audit_path = self.output_dir / "audit_log.json"
         self.audit_log.save(audit_path)
 
@@ -526,7 +531,235 @@ class TelephonyBridgeServer:
         with open(final_db_path, "w", encoding="utf-8") as final_db_file:
             json.dump(self.get_final_scenario_db(), final_db_file, indent=2, sort_keys=True, default=str)
 
+        # Generate pipecat_logs.jsonl from assistant speech events in the ElevenLabs log.
+        # The metrics processor uses these for intended_assistant_turns.
+        pipecat_logs_path = self.output_dir / "pipecat_logs.jsonl"
+        with open(pipecat_logs_path, "w", encoding="utf-8") as pipecat_file:
+            elevenlabs_path = self.output_dir / "elevenlabs_events.jsonl"
+            if elevenlabs_path.exists():
+                with open(elevenlabs_path) as el_file:
+                    for line in el_file:
+                        event = json.loads(line)
+                        if event.get("type") == "assistant_speech":
+                            text = event.get("data", {}).get("text", "")
+                            if text:
+                                pipecat_file.write(
+                                    json.dumps(
+                                        {
+                                            "type": "tts_text",
+                                            "start_timestamp": event.get("timestamp"),
+                                            "data": {"frame": text},
+                                        }
+                                    )
+                                    + "\n"
+                                )
+
+        # Generate response_latencies.json from ElevenLabs audio timestamps.
+        # Measures client-side latency: user_audio_end → assistant_audio_start,
+        # which is comparable to how Pipecat measures UserStoppedSpeaking → BotStartedSpeaking.
+        self._generate_response_latencies()
+
         logger.info(f"Telephony bridge outputs saved to {self.output_dir}")
+
+    async def _enrich_audit_log_from_api(self) -> None:
+        """Fetch conversation messages from Telnyx Conversations API and rebuild audit log.
+
+        The Telnyx AI assistant records full user/assistant message history. We fetch it
+        and rebuild the audit log transcript so that EVA's metrics processor can extract
+        proper conversation turns. The local audit log only has tool call events, which
+        isn't enough for LLM judge metrics.
+        """
+        if self._transport is None:
+            return
+
+        call_control_id = getattr(self._transport, "_call_control_id", None)
+        if not call_control_id:
+            logger.warning("No call_control_id available — cannot fetch conversation messages")
+            return
+
+        api_key = self.bridge_config.telnyx_api_key
+        base_url = "https://api.telnyx.com/v2/ai/conversations"
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                # Find the conversation by listing recent ones and matching call_control_id
+                resp = await client.get(
+                    base_url,
+                    params={"page[size]": 20},
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                conversations = resp.json().get("data", [])
+
+                conv_id = None
+                for conv in conversations:
+                    meta = conv.get("metadata", {}) or {}
+                    if meta.get("call_control_id") == call_control_id:
+                        conv_id = conv["id"]
+                        break
+
+                if not conv_id:
+                    logger.warning("Could not find conversation for call_control_id=%s", call_control_id)
+                    return
+
+                # Fetch messages
+                msg_resp = await client.get(
+                    f"{base_url}/{conv_id}/messages",
+                    params={"page[size]": 100},
+                    headers=headers,
+                )
+                msg_resp.raise_for_status()
+                messages = [m for m in msg_resp.json().get("data", []) if m is not None]
+                messages.reverse()  # API returns reverse chronological
+
+                if not messages:
+                    logger.warning("No messages found for conversation %s", conv_id)
+                    return
+
+                # Rebuild the audit log transcript from API messages
+                transcript = self._messages_to_audit_transcript(messages)
+                self.audit_log.replace_transcript(transcript)
+                logger.info(
+                    "Enriched audit log from conversations API: %d messages → %d transcript events",
+                    len(messages),
+                    len(transcript),
+                )
+
+                # Extract response latencies from assistant message metadata
+                latencies = []
+                for msg in messages:
+                    if msg.get("role") != "assistant":
+                        continue
+                    meta = msg.get("metadata") or {}
+                    lat_ms = meta.get("end_user_perceived_latency_ms")
+                    if lat_ms and lat_ms > 0:
+                        latencies.append(lat_ms / 1000.0)
+
+                latencies_data = {
+                    "latencies": latencies,
+                    "mean": round(sum(latencies) / len(latencies), 4) if latencies else 0,
+                    "max": round(max(latencies), 4) if latencies else 0,
+                    "min": round(min(latencies), 4) if latencies else 0,
+                    "count": len(latencies),
+                    "source": "telnyx_conversations_api",
+                }
+                latencies_path = self.output_dir / "response_latencies.json"
+                with open(latencies_path, "w") as f:
+                    json.dump(latencies_data, f, indent=2)
+                logger.info(
+                    "Generated response latencies: %d measurements, mean=%.3fs",
+                    len(latencies),
+                    latencies_data["mean"],
+                )
+
+        except Exception as e:
+            logger.warning("Failed to fetch conversation messages: %s", e)
+
+    @staticmethod
+    def _messages_to_audit_transcript(messages: list[dict]) -> list[dict]:
+        """Convert Telnyx Conversations API messages to audit log transcript format."""
+        transcript = []
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "unknown")
+            text = msg.get("text", "")
+            tool_calls = msg.get("tool_calls") or []
+            tool_call_id = msg.get("tool_call_id")
+            sent_at = msg.get("sent_at", msg.get("created_at", ""))
+
+            ts = 0
+            if sent_at:
+                try:
+                    dt = datetime.fromisoformat(sent_at.replace("Z", "+00:00"))
+                    ts = int(dt.timestamp() * 1000)
+                except (ValueError, TypeError):
+                    ts = i
+
+            if role == "user" and text:
+                transcript.append(
+                    {
+                        "timestamp": ts,
+                        "message_type": "user",
+                        "type": "user",
+                        "displayName": "User",
+                        "value": text,
+                    }
+                )
+            elif role == "assistant":
+                if text:
+                    transcript.append(
+                        {
+                            "timestamp": ts,
+                            "message_type": "assistant",
+                            "type": "assistant",
+                            "displayName": "Assistant",
+                            "value": text,
+                        }
+                    )
+                for tc in tool_calls:
+                    fn = tc.get("function", {})
+                    try:
+                        args = json.loads(fn.get("arguments", "{}"))
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                    transcript.append(
+                        {
+                            "timestamp": ts,
+                            "message_type": "tool_call",
+                            "type": "tool_call",
+                            "displayName": "Tool",
+                            "value": {
+                                "tool": fn.get("name", ""),
+                                "parameters": args,
+                                "tool_call_id": tc.get("id", ""),
+                            },
+                        }
+                    )
+            elif role == "tool":
+                tool_name = ""
+                if tool_call_id:
+                    for prev in reversed(transcript):
+                        if (
+                            prev.get("message_type") == "tool_call"
+                            and prev.get("value", {}).get("tool_call_id") == tool_call_id
+                        ):
+                            tool_name = prev["value"]["tool"]
+                            break
+                transcript.append(
+                    {
+                        "timestamp": ts,
+                        "message_type": "tool_response",
+                        "type": "tool_response",
+                        "displayName": "Tool Response",
+                        "value": {
+                            "tool": tool_name,
+                            "response": text,
+                            "tool_call_id": tool_call_id or "",
+                        },
+                    }
+                )
+
+        return transcript
+
+    def _generate_response_latencies(self) -> None:
+        """Generate response_latencies.json from Telnyx Conversations API metadata.
+
+        Each assistant message includes ``end_user_perceived_latency_ms`` which measures
+        the time from user speech end to assistant audio start on the server side.
+        This is the best available latency measurement since ElevenLabs audio_start
+        events are only emitted for the initial greeting, not subsequent turns.
+        """
+        # The audit log was already enriched with API messages in _enrich_audit_log_from_api.
+        # Extract latency from the raw API response stored during enrichment.
+        latencies_path = self.output_dir / "response_latencies.json"
+        if latencies_path.exists():
+            # Already generated during enrichment
+            return
+
+        # If enrichment didn't produce latencies, write empty file
+        latencies_data = {"latencies": [], "mean": 0, "max": 0, "min": 0, "count": 0}
+        with open(latencies_path, "w") as f:
+            json.dump(latencies_data, f, indent=2)
 
     def _save_audio(self) -> None:
         if self._session_state is None:
