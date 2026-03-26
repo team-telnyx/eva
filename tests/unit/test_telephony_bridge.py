@@ -187,6 +187,12 @@ class TestTelephonyBridgeServer:
         assert initial_db["reservations"]["ABC123"]["status"] == "confirmed"
         assert final_db["reservations"]["ABC123"]["status"] == "confirmed"
 
+        # Client-side latency: user ended at 0.1s, assistant started at 1.0s → 0.9s
+        latencies = json.loads((bridge.output_dir / "response_latencies.json").read_text())
+        assert latencies["count"] == 1
+        assert latencies["latencies"] == [0.9]
+        assert latencies["source"] == "client_audio_segments"
+
     def test_default_transport_factory_creates_call_control_transport(self, tmp_path: Path, monkeypatch):
         bridge, _transport = _make_bridge(tmp_path)
         bridge.bridge_config = TelephonyBridgeConfig(

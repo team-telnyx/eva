@@ -102,12 +102,25 @@ https://your-domain.ngrok-free.dev/tools/{{call_control_id}}/{tool_name}
 
 The `{{call_control_id}}` dynamic variable is resolved by Telnyx at runtime.
 
+## Latency Measurement
+
+Response latency is measured **client-side** at the bridge, matching how Pipecat's `UserBotLatencyObserver` works:
+
+```
+User speech ends (last audio chunk received from ElevenLabs)
+         ↓ gap = response latency
+Assistant speech starts (first audio chunk received from Telnyx media stream)
+```
+
+This includes the full round-trip: network latency between the bridge and Telnyx, media streaming overhead, plus the assistant's own processing time (STT → LLM → TTS). The result is directly comparable to Pipecat-based benchmark latencies.
+
+Written to `response_latencies.json` in the same format EVA's metrics processor expects.
+
 ## Post-Call Enrichment
 
 After each call ends, the bridge fetches the full conversation history from the Telnyx Conversations API using the call's `call_control_id`. This enriches the local audit log with:
 
 - **User and assistant speech turns** — the local audit log only captures tool calls; the API provides the full transcript
-- **Server-side latency metrics** — `end_user_perceived_latency_ms` from assistant message metadata
 - **Tool call/response pairs** — complete with function arguments and results
 
 This enables EVA's metrics processor to score task completion and conversation quality even though the assistant ran as an opaque black box.

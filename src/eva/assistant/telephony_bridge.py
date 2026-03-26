@@ -554,9 +554,8 @@ class TelephonyBridgeServer:
                                     + "\n"
                                 )
 
-        # Generate response_latencies.json from ElevenLabs audio timestamps.
-        # Measures client-side latency: user_audio_end → assistant_audio_start,
-        # which is comparable to how Pipecat measures UserStoppedSpeaking → BotStartedSpeaking.
+        # Generate response_latencies.json from client-side audio segment timing.
+        # Mirrors Pipecat's UserStoppedSpeaking → BotStartedSpeaking measurement.
         self._generate_response_latencies()
 
         logger.info(f"Telephony bridge outputs saved to {self.output_dir}")
@@ -622,33 +621,6 @@ class TelephonyBridgeServer:
                     "Enriched audit log from conversations API: %d messages → %d transcript events",
                     len(messages),
                     len(transcript),
-                )
-
-                # Extract response latencies from assistant message metadata
-                latencies = []
-                for msg in messages:
-                    if msg.get("role") != "assistant":
-                        continue
-                    meta = msg.get("metadata") or {}
-                    lat_ms = meta.get("end_user_perceived_latency_ms")
-                    if lat_ms and lat_ms > 0:
-                        latencies.append(lat_ms / 1000.0)
-
-                latencies_data = {
-                    "latencies": latencies,
-                    "mean": round(sum(latencies) / len(latencies), 4) if latencies else 0,
-                    "max": round(max(latencies), 4) if latencies else 0,
-                    "min": round(min(latencies), 4) if latencies else 0,
-                    "count": len(latencies),
-                    "source": "telnyx_conversations_api",
-                }
-                latencies_path = self.output_dir / "response_latencies.json"
-                with open(latencies_path, "w") as f:
-                    json.dump(latencies_data, f, indent=2)
-                logger.info(
-                    "Generated response latencies: %d measurements, mean=%.3fs",
-                    len(latencies),
-                    latencies_data["mean"],
                 )
 
         except Exception as e:
@@ -740,24 +712,53 @@ class TelephonyBridgeServer:
         return transcript
 
     def _generate_response_latencies(self) -> None:
-        """Generate response_latencies.json from Telnyx Conversations API metadata.
+        """Generate response_latencies.json from client-side audio segment timing.
 
-        Each assistant message includes ``end_user_perceived_latency_ms`` which measures
-        the time from user speech end to assistant audio start on the server side.
-        This is the best available latency measurement since ElevenLabs audio_start
-        events are only emitted for the initial greeting, not subsequent turns.
+        Measures the gap between the end of each user speech segment and the start
+        of the next assistant speech segment. This mirrors how Pipecat's
+        ``UserBotLatencyObserver`` measures ``UserStoppedSpeaking → BotStartedSpeaking``
+        and gives an apples-to-apples comparison with Pipecat-based benchmarks.
+
+        Unlike server-side ``end_user_perceived_latency_ms`` from the Conversations API,
+        this includes the full round-trip: network latency between the bridge and
+        Telnyx, plus any media streaming overhead.
         """
-        # The audit log was already enriched with API messages in _enrich_audit_log_from_api.
-        # Extract latency from the raw API response stored during enrichment.
         latencies_path = self.output_dir / "response_latencies.json"
-        if latencies_path.exists():
-            # Already generated during enrichment
-            return
+        latencies: list[float] = []
 
-        # If enrichment didn't produce latencies, write empty file
-        latencies_data = {"latencies": [], "mean": 0, "max": 0, "min": 0, "count": 0}
+        if self._session_state is not None:
+            user_segs = self._session_state.user_segments
+            asst_segs = self._session_state.assistant_segments
+
+            # For each user segment, find the next assistant segment that starts after it ends.
+            # This pairs conversational turns the same way Pipecat's VAD-based observer does.
+            asst_idx = 0
+            for user_seg in user_segs:
+                # Advance past assistant segments that started before this user segment ended
+                while asst_idx < len(asst_segs) and asst_segs[asst_idx].started_at <= user_seg.ended_at:
+                    asst_idx += 1
+
+                if asst_idx < len(asst_segs):
+                    gap = asst_segs[asst_idx].started_at - user_seg.ended_at
+                    if gap > 0:
+                        latencies.append(round(gap, 4))
+
+        latencies_data = {
+            "latencies": latencies,
+            "mean": round(sum(latencies) / len(latencies), 4) if latencies else 0,
+            "max": round(max(latencies), 4) if latencies else 0,
+            "min": round(min(latencies), 4) if latencies else 0,
+            "count": len(latencies),
+            "source": "client_audio_segments",
+        }
         with open(latencies_path, "w") as f:
             json.dump(latencies_data, f, indent=2)
+
+        logger.info(
+            "Generated client-side response latencies: %d measurements, mean=%.3fs",
+            len(latencies),
+            latencies_data["mean"],
+        )
 
     def _save_audio(self) -> None:
         if self._session_state is None:
