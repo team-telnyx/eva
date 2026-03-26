@@ -678,79 +678,27 @@ class TelephonyBridgeServer:
         # Voice calls need more time than chat — transcription + message storage.
         await asyncio.sleep(5)
 
+        call_control_id = self._transport.external_call_id
+        if not call_control_id:
+            logger.warning("No call_control_id available — cannot fetch conversation messages")
+            return
+
         try:
             async with httpx.AsyncClient(timeout=30) as client:
-                # Fetch recent conversations and match by call_leg_id proximity.
-                # The A-leg and B-leg call_leg_ids are sequential UUIDs generated
-                # within milliseconds, so our A-leg ID should be very close to the
-                # B-leg ID stored in conversation metadata.
-                a_leg_id = getattr(self._transport, "call_leg_id", None)
-                call_control_id = self._transport.external_call_id
+                # Look up the conversation_id via Call Events API.
+                # The conversation_created event on our A-leg contains the
+                # conversation_id needed for the Conversations messages API.
+                # This is deterministic — no heuristic matching required.
+                conv_id = await self._find_conversation_id_from_events(
+                    client, call_control_id, headers
+                )
 
-                # Strategy 1: Try call_control_id (works if the lookup happens to
-                # match — e.g., if the API eventually stores the A-leg CC ID too)
-                conversations: list[dict] = []
-                if call_control_id:
-                    resp = await client.get(
-                        base_url,
-                        params={
-                            "metadata->call_control_id": f"eq.{call_control_id}",
-                            "limit": 1,
-                        },
-                        headers=headers,
-                    )
-                    resp.raise_for_status()
-                    conversations = resp.json().get("data", [])
-
-                # Strategy 2: If CC ID didn't match (A-leg vs B-leg mismatch),
-                # fetch recent conversations and match by call_leg_id proximity
-                if not conversations and a_leg_id:
-                    resp = await client.get(
-                        base_url,
-                        params={
-                            "page[size]": 20,
-                            "sort": "-created_at",
-                        },
-                        headers=headers,
-                    )
-                    resp.raise_for_status()
-                    candidates = resp.json().get("data", [])
-                    # Find the conversation whose B-leg call_leg_id is closest to
-                    # our A-leg call_leg_id (they're sequential UUIDs)
-                    best_match = None
-                    best_diff = float("inf")
-                    for c in candidates:
-                        meta = c.get("metadata", {})
-                        b_leg_id = meta.get("call_leg_id", "")
-                        if not b_leg_id:
-                            continue
-                        try:
-                            diff = self._uuid_v1_time_diff_seconds(a_leg_id, b_leg_id)
-                            if diff < 2.0 and diff < best_diff:
-                                best_diff = diff
-                                best_match = c
-                        except (ValueError, IndexError):
-                            continue
-                    if best_match:
-                        conversations = [best_match]
-                        matched_leg = best_match.get("metadata", {}).get("call_leg_id", "?")
-                        logger.info(
-                            "Matched conversation by call_leg_id proximity (%.3fs): "
-                            "A-leg=%s, B-leg=%s",
-                            best_diff,
-                            a_leg_id,
-                            matched_leg,
-                        )
-
-                if not conversations:
+                if not conv_id:
                     logger.warning(
-                        "Could not find conversation for call_control_id=%s / call_leg_id=%s",
+                        "Could not find conversation_id for call_control_id=%s",
                         call_control_id,
-                        a_leg_id,
                     )
                     return
-
-                conv_id = conversations[0]["id"]
 
                 # Fetch messages
                 msg_resp = await client.get(
@@ -777,6 +725,57 @@ class TelephonyBridgeServer:
 
         except Exception as e:
             logger.warning("Failed to fetch conversation messages: %s", e)
+
+    @staticmethod
+    async def _find_conversation_id_from_events(
+        client: httpx.AsyncClient,
+        call_control_id: str,
+        headers: dict[str, str],
+    ) -> str | None:
+        """Find the conversation_id by querying the Call Events API.
+
+        The ``conversation_created`` event on the A-leg call contains the
+        ``conversation_id`` that maps to the Conversations messages API.
+        """
+        from urllib.parse import quote
+
+        try:
+            resp = await client.get(
+                "https://api.telnyx.com/v2/call_events",
+                params={
+                    "filter[call_control_id]": call_control_id,
+                    "page[size]": 50,
+                },
+                headers=headers,
+            )
+            resp.raise_for_status()
+            events = resp.json().get("data", [])
+
+            for event in events:
+                if event.get("name") != "conversation_created":
+                    continue
+                payload = event.get("payload", {})
+                if isinstance(payload, dict):
+                    inner = payload.get("payload", payload)
+                    if isinstance(inner, dict):
+                        conv_id = inner.get("conversation_id")
+                        if conv_id:
+                            logger.info(
+                                "Found conversation_id=%s from call events for cc_id=%s",
+                                conv_id,
+                                call_control_id[:40],
+                            )
+                            return conv_id
+
+            logger.warning(
+                "No conversation_created event found for call_control_id=%s (checked %d events)",
+                call_control_id[:40],
+                len(events),
+            )
+        except Exception as e:
+            logger.warning("Failed to query call events: %s", e)
+
+        return None
 
     @staticmethod
     def _uuid_v1_time_diff_seconds(uuid_a: str, uuid_b: str) -> float:
