@@ -137,7 +137,7 @@ class TelnyxAssistantManager:
             "enabled_features": ["telephony"],
             "voice_settings": {
                 "voice": voice,
-                "voice_speed": 1.0,
+                "voice_speed": 1.2,
                 "expressive_mode": True,
                 "language_boost": "English",
                 "similarity_boost": 0.5,

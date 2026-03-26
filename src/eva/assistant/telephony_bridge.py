@@ -331,6 +331,9 @@ class TelephonyBridgeServer:
         self._transport_factory = transport_factory or self._default_transport_factory
         self._segment_transcriber = segment_transcriber or create_segment_transcriber(bridge_config)
         self._session_state: _SessionState | None = None
+        # Saved before transport cleanup for post-call enrichment
+        self._enrichment_call_control_id: str | None = None
+        self._enrichment_call_leg_id: str | None = None
         self._session_started_monotonic: float | None = None
         self._transport: BaseTelephonyTransport | None = None
         self._tool_webhook_register_callback: Callable[[str], Any] | None = None
@@ -543,7 +546,11 @@ class TelephonyBridgeServer:
             except asyncio.CancelledError:
                 pass
 
+            # Save call identifiers before cleaning up the transport — we need
+            # them later for conversation API enrichment in _save_outputs().
             if self._transport is not None:
+                self._enrichment_call_control_id = self._transport.external_call_id
+                self._enrichment_call_leg_id = getattr(self._transport, "call_leg_id", None)
                 await self._transport.stop()
                 self._transport = None
 
@@ -667,21 +674,25 @@ class TelephonyBridgeServer:
         query recent conversations and match by call_leg_id proximity (A-leg and B-leg
         leg IDs are sequential UUIDs created within milliseconds of each other).
         """
-        if self._transport is None:
+        logger.info("Starting post-call enrichment from Conversations API...")
+
+        # Use saved identifiers (captured before transport cleanup in _handle_session)
+        call_control_id = getattr(self, "_enrichment_call_control_id", None)
+        if not call_control_id:
+            logger.warning("No call_control_id available — cannot enrich (transport cleaned up before save?)")
             return
 
         api_key = self.bridge_config.telnyx_api_key
+        if not api_key:
+            logger.warning("No telnyx_api_key configured — skipping enrichment")
+            return
+
         base_url = "https://api.telnyx.com/v2/ai/conversations"
         headers = {"Authorization": f"Bearer {api_key}"}
 
         # Wait for the Conversations API to fully index the call's messages.
         # Voice calls need more time than chat — transcription + message storage.
         await asyncio.sleep(5)
-
-        call_control_id = self._transport.external_call_id
-        if not call_control_id:
-            logger.warning("No call_control_id available — cannot fetch conversation messages")
-            return
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
