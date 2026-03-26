@@ -68,6 +68,7 @@ class TestCallControlTransport:
             assert call_payload["stream_url"] == "wss://example.ngrok-free.dev/media-stream/conv-test-1"
             assert call_payload["stream_bidirectional_mode"] == "rtp"
             assert call_payload["stream_bidirectional_codec"] == "L16"
+            assert call_payload["stream_bidirectional_sampling_rate"] == 16000
 
             # Transport should be registered globally
             assert _active_transports.get("conv-test-1") is transport

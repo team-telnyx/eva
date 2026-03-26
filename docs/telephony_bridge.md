@@ -15,7 +15,7 @@ Benchmark any voice assistant as a black box using EVA's telephony bridge. The b
 │  └──────────────┘     └──────────┬───────────┘     └───────┬───────┘ │
 │                                  │                         │         │
 │                    Call Control   │ Media Stream            │ ngrok   │
-│                    API + WSS     │ (PCMU/8kHz)             │         │
+│                    API + WSS     │ (L16/16kHz)             │         │
 └──────────────────────────────────┼─────────────────────────┼─────────┘
                                    │                         │
                           ┌────────▼─────────┐     ┌────────▼────────┐
@@ -27,7 +27,7 @@ Benchmark any voice assistant as a black box using EVA's telephony bridge. The b
 ## How It Works
 
 1. **Call Control transport** places an outbound call via Telnyx Call Control API to the assistant's SIP URI
-2. Audio flows bidirectionally through Telnyx's **media streaming** WebSocket (PCMU codec, 8kHz μ-law)
+2. Audio flows bidirectionally through Telnyx's **media streaming** WebSocket (L16 codec, 16kHz)
 3. The assistant's **tool calls** hit the tool webhook service via ngrok, which executes them against EVA's deterministic scenario database
 4. EVA records transcripts, audio, tool calls, and metrics for evaluation
 
@@ -82,9 +82,9 @@ python -m eva
 
 ## Audio Format
 
-- **Media streaming**: PCMU (μ-law, 8kHz, mono) — zero codec conversion on the wire
+- **Media streaming**: L16 (16-bit PCM, 16kHz, mono) — matches ElevenLabs native rate, no codec conversion needed
 - **Recordings**: PCM 16-bit WAV at 24kHz (EVA standard)
-- The bridge handles sample rate conversion between the transport (8kHz) and EVA's recording format (24kHz)
+- The bridge handles sample rate conversion between the transport (16kHz) and EVA's recording format (24kHz)
 
 ## Tool Webhooks
 

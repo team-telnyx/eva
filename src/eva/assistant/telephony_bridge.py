@@ -583,25 +583,23 @@ class TelephonyBridgeServer:
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
-                # Find the conversation by listing recent ones and matching call_control_id
+                # Look up the conversation by call_control_id using PostgREST metadata filter
                 resp = await client.get(
                     base_url,
-                    params={"page[size]": 20},
+                    params={
+                        "metadata->call_control_id": f"eq.{call_control_id}",
+                        "limit": 1,
+                    },
                     headers=headers,
                 )
                 resp.raise_for_status()
                 conversations = resp.json().get("data", [])
 
-                conv_id = None
-                for conv in conversations:
-                    meta = conv.get("metadata", {}) or {}
-                    if meta.get("call_control_id") == call_control_id:
-                        conv_id = conv["id"]
-                        break
-
-                if not conv_id:
+                if not conversations:
                     logger.warning("Could not find conversation for call_control_id=%s", call_control_id)
                     return
+
+                conv_id = conversations[0]["id"]
 
                 # Fetch messages
                 msg_resp = await client.get(

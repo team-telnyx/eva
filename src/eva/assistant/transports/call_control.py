@@ -113,6 +113,7 @@ class CallControlTransport(BaseTelephonyTransport):
                     "stream_track": "both_tracks",
                     "stream_bidirectional_mode": "rtp",
                     "stream_bidirectional_codec": "L16",
+                    "stream_bidirectional_sampling_rate": 16000,
                 },
             )
             data = response.get("data", {})
