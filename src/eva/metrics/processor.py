@@ -767,7 +767,7 @@ class MetricsContextProcessor:
                     "timestamp_ms": int(entry["timestamp"]),
                     "source": "audit_log",
                     "event_type": entry.get("message_type", "unknown"),
-                    "data": entry.get("value", {}),
+                    "data": entry.get("content") or entry.get("value", {}),
                 }
             )
         return history

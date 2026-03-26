@@ -845,6 +845,7 @@ class TelephonyBridgeServer:
                         "message_type": "user",
                         "type": "user",
                         "displayName": "User",
+                        "content": text,
                         "value": text,
                     }
                 )
@@ -856,6 +857,7 @@ class TelephonyBridgeServer:
                             "message_type": "assistant",
                             "type": "assistant",
                             "displayName": "Assistant",
+                            "content": text,
                             "value": text,
                         }
                     )
