@@ -79,6 +79,13 @@ class TestCallControlTransport:
 
             assert transport._call_control_id == "call-control-123"
             assert transport._call_session_id == "session-abc-123"
+            assert transport._eva_call_id is not None  # Generated before dialing
+
+            # Verify the custom header was sent with our eva_call_id
+            custom_headers = call_payload.get("custom_headers", [])
+            eva_headers = [h for h in custom_headers if h["name"] == "X-Eva-Call-Id"]
+            assert len(eva_headers) == 1
+            assert eva_headers[0]["value"] == transport._eva_call_id
         finally:
             await transport.stop()
             await api_runner.cleanup()

@@ -73,6 +73,7 @@ class CallControlTransport(BaseTelephonyTransport):
         self._stream_ws: Any | None = None  # WebSocket connection from Telnyx
         self._call_control_id: str | None = None
         self._call_session_id: str | None = None
+        self._eva_call_id: str | None = None
         self._stream_id: str | None = None
         self._connected_event = asyncio.Event()
         self._disconnected_event = asyncio.Event()
@@ -90,14 +91,19 @@ class CallControlTransport(BaseTelephonyTransport):
 
     @property
     def call_session_id(self) -> str | None:
-        """Return the Telnyx call_session_id once the call is placed.
-
-        The call_session_id is shared across both A-leg and B-leg of a call,
-        making it the correct identifier for routing tool webhooks (the
-        assistant resolves ``{{call_session_id}}`` to the same value on both
-        legs).
-        """
+        """Return the Telnyx call_session_id once the call is placed."""
         return self._call_session_id
+
+    @property
+    def eva_call_id(self) -> str | None:
+        """Return the EVA-generated call ID used for tool webhook routing.
+
+        This ID is generated before dialing and passed as the ``X-Eva-Call-Id``
+        SIP header. The Telnyx AI assistant resolves it as ``{{eva_call_id}}``
+        in webhook URLs, providing a deterministic routing key that EVA
+        controls — independent of platform-assigned call IDs.
+        """
+        return self._eva_call_id
 
     async def start(self) -> None:
         if self._session is not None:
@@ -125,7 +131,19 @@ class CallControlTransport(BaseTelephonyTransport):
             stream_wss_url = self.webhook_base_url.replace("https://", "wss://").replace("http://", "ws://")
             stream_wss_url = f"{stream_wss_url}/media-stream/{self.conversation_id}"
 
-            logger.info("Call Control: placing call to %s, media stream URL: %s", self.to, stream_wss_url)
+            # Generate a unique EVA call ID and pass it as a custom SIP header.
+            # The Telnyx AI assistant resolves X-Eva-Call-Id as the dynamic
+            # variable {{eva_call_id}} in webhook URLs, giving us a
+            # deterministic routing key that is known before the call connects.
+            import uuid
+
+            self._eva_call_id = str(uuid.uuid4())
+            logger.info(
+                "Call Control: placing call to %s, eva_call_id=%s, media stream URL: %s",
+                self.to,
+                self._eva_call_id,
+                stream_wss_url,
+            )
 
             response = await self._post(
                 "/calls",
@@ -138,6 +156,12 @@ class CallControlTransport(BaseTelephonyTransport):
                     "stream_bidirectional_mode": "rtp",
                     "stream_bidirectional_codec": "L16",
                     "stream_bidirectional_sampling_rate": 16000,
+                    "custom_headers": [
+                        {
+                            "name": "X-Eva-Call-Id",
+                            "value": self._eva_call_id,
+                        }
+                    ],
                 },
             )
             data = response.get("data", {})
@@ -184,6 +208,7 @@ class CallControlTransport(BaseTelephonyTransport):
         self._stream_id = None
         self._call_control_id = None
         self._call_session_id = None
+        self._eva_call_id = None
         self._connected_event.clear()
 
     def _convert_outbound_audio(self, pcm_16khz: bytes) -> bytes:

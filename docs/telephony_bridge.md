@@ -97,10 +97,10 @@ External assistants call tools by hitting webhook URLs. The tool webhook service
 
 Configure your assistant's tools with URL template:
 ```
-https://your-domain.ngrok-free.dev/tools/{{call_session_id}}/{tool_name}
+https://your-domain.ngrok-free.dev/tools/{{eva_call_id}}/{tool_name}
 ```
 
-The `{{call_session_id}}` dynamic variable is resolved by Telnyx at runtime. We use `call_session_id` rather than `call_control_id` because it is shared across both legs of the call (A-leg placed by EVA and B-leg answered by the assistant), which enables deterministic webhook routing even with concurrent benchmark calls.
+The `{{eva_call_id}}` is a [customer-defined dynamic variable](https://developers.telnyx.com/docs/inference/ai-assistants/dynamic-variables#customer-defined-dynamic-variables) that EVA injects via the `X-Eva-Call-Id` custom SIP header when placing the call. The assistant resolves it at runtime to route tool calls back to the correct conversation. Because EVA generates this ID before dialing, routing is deterministic even with concurrent benchmark calls — no reliance on platform-assigned call IDs that differ between legs.
 
 ## Latency Measurement
 

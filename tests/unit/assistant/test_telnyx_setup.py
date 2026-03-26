@@ -105,7 +105,7 @@ class TestTelnyxAssistantManager:
         assert webhook_tool["type"] == "webhook"
         wh = webhook_tool["webhook"]
         assert wh["name"] == "get_reservation"
-        assert wh["url"] == "https://example.ngrok-free.app/tools/{{call_session_id}}/get_reservation"
+        assert wh["url"] == "https://example.ngrok-free.app/tools/{{eva_call_id}}/get_reservation"
         assert wh["method"] == "POST"
         assert "confirmation_number" in wh["body_parameters"]["properties"]
         assert "Role: Reservation specialist" in payload["instructions"]
@@ -207,19 +207,22 @@ class TestTelnyxRegressionGuards:
             f"Tools in config but not in {agent_config.tool_module_path}: {missing_impl}"
         )
 
-    def test_all_webhook_urls_use_call_session_id(self) -> None:
-        """Webhook URLs must use {{call_session_id}} for concurrent call routing."""
+    def test_all_webhook_urls_use_eva_call_id(self) -> None:
+        """Webhook URLs must use {{eva_call_id}} for concurrent call routing."""
         result = _build_payload_from_real_config()
 
         for tool in result["tools"]:
             if tool["type"] != "webhook":
                 continue
             url = tool["webhook"]["url"]
-            assert "{{call_session_id}}" in url, (
+            assert "{{eva_call_id}}" in url, (
                 f"Tool {tool['webhook']['name']} uses wrong URL template: {url}"
             )
             assert "{{call_control_id}}" not in url, (
                 f"Tool {tool['webhook']['name']} still uses call_control_id: {url}"
+            )
+            assert "{{call_session_id}}" not in url, (
+                f"Tool {tool['webhook']['name']} still uses call_session_id: {url}"
             )
 
     def test_webhook_tool_payload_has_required_fields(self) -> None:
