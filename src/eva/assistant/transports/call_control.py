@@ -73,6 +73,7 @@ class CallControlTransport(BaseTelephonyTransport):
         self._stream_ws: Any | None = None  # WebSocket connection from Telnyx
         self._call_control_id: str | None = None
         self._call_session_id: str | None = None
+        self._call_leg_id: str | None = None
         self._eva_call_id: str | None = None
         self._stream_id: str | None = None
         self._connected_event = asyncio.Event()
@@ -88,6 +89,11 @@ class CallControlTransport(BaseTelephonyTransport):
     def external_call_id(self) -> str | None:
         """Return the Telnyx call_control_id once the call is placed."""
         return self._call_control_id
+
+    @property
+    def call_leg_id(self) -> str | None:
+        """Return the A-leg call_leg_id from the Call Control API."""
+        return self._call_leg_id
 
     @property
     def eva_call_id(self) -> str | None:
@@ -163,6 +169,7 @@ class CallControlTransport(BaseTelephonyTransport):
             data = response.get("data", {})
             self._call_control_id = data.get("call_control_id")
             self._call_session_id = data.get("call_session_id")
+            self._call_leg_id = data.get("call_leg_id")
             if not self._call_control_id:
                 raise RuntimeError("Telnyx call creation response did not include data.call_control_id")
             if not self._call_session_id:
@@ -204,6 +211,7 @@ class CallControlTransport(BaseTelephonyTransport):
         self._stream_id = None
         self._call_control_id = None
         self._call_session_id = None
+        self._call_leg_id = None
         self._eva_call_id = None
         self._connected_event.clear()
 
