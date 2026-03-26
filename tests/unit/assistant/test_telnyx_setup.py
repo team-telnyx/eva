@@ -100,7 +100,7 @@ class TestTelnyxAssistantManager:
         assert webhook_tool["type"] == "webhook"
         wh = webhook_tool["webhook"]
         assert wh["name"] == "get_reservation"
-        assert wh["url"] == "https://example.ngrok-free.app/tools/{{call_control_id}}/get_reservation"
+        assert wh["url"] == "https://example.ngrok-free.app/tools/{{call_session_id}}/get_reservation"
         assert wh["method"] == "POST"
         assert "confirmation_number" in wh["body_parameters"]["properties"]
         assert "Role: Reservation specialist" in payload["instructions"]

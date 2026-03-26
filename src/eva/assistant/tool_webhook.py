@@ -31,10 +31,6 @@ class ToolWebhookService:
 
         self._lock = asyncio.Lock()
         self._conversations: dict[str, _ConversationRegistration] = {}
-        # Track unique registrations (by id) vs aliases that point to the same one
-        self._unique_registrations: set[int] = set()
-        # Registrations awaiting their first B-leg tool call (for concurrent routing)
-        self._pending_bleg: set[int] = set()
 
         self._app = FastAPI()
         self._server: uvicorn.Server | None = None
@@ -104,25 +100,24 @@ class ToolWebhookService:
         registration = _ConversationRegistration(executor=executor, audit_log=audit_log or AuditLog())
         async with self._lock:
             self._conversations[call_id] = registration
-            self._unique_registrations.add(id(registration))
-            self._pending_bleg.add(id(registration))
         logger.info(f"Registered tool webhook conversation {call_id}")
 
-    async def register_call_control_id(self, call_control_id: str, record_id: str) -> None:
-        """Register the call_control_id so tool webhook requests can be routed.
+    async def register_call_session_id(self, call_session_id: str, record_id: str) -> None:
+        """Register the call_session_id so tool webhook requests can be routed.
 
-        The Telnyx assistant resolves ``{{call_control_id}}`` in webhook URLs to
-        the same call_control_id returned by the Call Control API when the call
-        was placed. This registers that ID to route to the existing conversation
-        registered under ``record_id``.
+        The Telnyx assistant resolves ``{{call_session_id}}`` in webhook URLs.
+        Unlike ``call_control_id``, ``call_session_id`` is shared across both
+        A-leg and B-leg of the call, so EVA can register it immediately after
+        placing the call — no B-leg guessing required, and concurrent calls
+        route deterministically.
         """
         async with self._lock:
             registration = self._conversations.get(record_id)
             if registration is None:
-                logger.warning("Cannot register cc_id %s: record %s not found", call_control_id, record_id)
+                logger.warning("Cannot register call_session_id %s: record %s not found", call_session_id, record_id)
                 return
-            self._conversations[call_control_id] = registration
-        logger.info("Registered call_control_id %s for conversation %s", call_control_id, record_id)
+            self._conversations[call_session_id] = registration
+        logger.info("Registered call_session_id %s for conversation %s", call_session_id, record_id)
 
     async def unregister_conversation(self, call_id: str) -> None:
         """Remove a conversation (and all its aliases) from the webhook registry."""
@@ -134,8 +129,6 @@ class ToolWebhookService:
                 aliases = [k for k, v in self._conversations.items() if id(v) == reg_id]
                 for alias in aliases:
                     del self._conversations[alias]
-                self._unique_registrations.discard(reg_id)
-                self._pending_bleg.discard(reg_id)
         logger.info(f"Unregistered tool webhook conversation {call_id}")
 
     async def get_audit_log(self, call_id: str) -> AuditLog | None:
@@ -162,32 +155,10 @@ class ToolWebhookService:
         async def invoke_tool(call_id: str, tool_name: str, request: Request) -> Any:
             registration = await self._get_registration(call_id)
             if registration is None:
-                # Try URL-decoded version (call_control_ids may contain colons)
+                # Try URL-decoded version (session IDs shouldn't need this,
+                # but call_control_ids contained colons — keep as safety net)
                 from urllib.parse import unquote
                 registration = await self._get_registration(unquote(call_id))
-            if registration is None:
-                # The assistant resolves {{call_control_id}} to the B-leg CC ID,
-                # which differs from the A-leg CC ID we know. Route to the
-                # conversation that hasn't received a B-leg tool call yet.
-                # With concurrent calls, this works as long as first tool calls
-                # don't arrive in the exact same instant (each conversation's
-                # B-leg is resolved one at a time as they arrive).
-                async with self._lock:
-                    if len(self._pending_bleg) == 1:
-                        # Exactly one conversation awaiting B-leg — route there
-                        pending_id = next(iter(self._pending_bleg))
-                        for reg in self._conversations.values():
-                            if id(reg) == pending_id:
-                                registration = reg
-                                break
-                        if registration is not None:
-                            self._conversations[call_id] = registration
-                            self._pending_bleg.discard(pending_id)
-                if registration is not None:
-                    logger.info(
-                        "Auto-registered B-leg call_id %s → pending conversation",
-                        call_id,
-                    )
             if registration is None:
                 logger.warning(
                     "Tool webhook 404: call_id=%s not found in registered conversations",

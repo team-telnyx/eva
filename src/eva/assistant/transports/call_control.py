@@ -72,6 +72,7 @@ class CallControlTransport(BaseTelephonyTransport):
         self._session: aiohttp.ClientSession | None = None
         self._stream_ws: Any | None = None  # WebSocket connection from Telnyx
         self._call_control_id: str | None = None
+        self._call_session_id: str | None = None
         self._stream_id: str | None = None
         self._connected_event = asyncio.Event()
         self._disconnected_event = asyncio.Event()
@@ -86,6 +87,17 @@ class CallControlTransport(BaseTelephonyTransport):
     def external_call_id(self) -> str | None:
         """Return the Telnyx call_control_id once the call is placed."""
         return self._call_control_id
+
+    @property
+    def call_session_id(self) -> str | None:
+        """Return the Telnyx call_session_id once the call is placed.
+
+        The call_session_id is shared across both A-leg and B-leg of a call,
+        making it the correct identifier for routing tool webhooks (the
+        assistant resolves ``{{call_session_id}}`` to the same value on both
+        legs).
+        """
+        return self._call_session_id
 
     async def start(self) -> None:
         if self._session is not None:
@@ -130,10 +142,17 @@ class CallControlTransport(BaseTelephonyTransport):
             )
             data = response.get("data", {})
             self._call_control_id = data.get("call_control_id")
+            self._call_session_id = data.get("call_session_id")
             if not self._call_control_id:
                 raise RuntimeError("Telnyx call creation response did not include data.call_control_id")
+            if not self._call_session_id:
+                raise RuntimeError("Telnyx call creation response did not include data.call_session_id")
 
-            logger.info("Call placed: call_control_id=%s, waiting for media stream...", self._call_control_id)
+            logger.info(
+                "Call placed: call_control_id=%s, call_session_id=%s, waiting for media stream...",
+                self._call_control_id,
+                self._call_session_id,
+            )
             await asyncio.wait_for(self._connected_event.wait(), timeout=self.connect_timeout_seconds)
             logger.info("Telnyx Call Control media stream connected for %s", self.to)
         except Exception:
@@ -164,6 +183,7 @@ class CallControlTransport(BaseTelephonyTransport):
 
         self._stream_id = None
         self._call_control_id = None
+        self._call_session_id = None
         self._connected_event.clear()
 
     def _convert_outbound_audio(self, pcm_16khz: bytes) -> bytes:

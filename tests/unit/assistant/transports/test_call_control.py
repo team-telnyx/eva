@@ -78,6 +78,7 @@ class TestCallControlTransport:
             await asyncio.wait_for(start_task, timeout=2.0)
 
             assert transport._call_control_id == "call-control-123"
+            assert transport._call_session_id == "session-abc-123"
         finally:
             await transport.stop()
             await api_runner.cleanup()
@@ -168,7 +169,7 @@ async def _start_api_server(port: int, requests: list[dict], create_call_receive
     async def create_call(request: web.Request) -> web.Response:
         requests.append({"path": request.path, "json": await request.json()})
         create_call_received.set()
-        return web.json_response({"data": {"call_control_id": "call-control-123"}})
+        return web.json_response({"data": {"call_control_id": "call-control-123", "call_session_id": "session-abc-123"}})
 
     async def hangup(request: web.Request) -> web.Response:
         requests.append({"path": request.path, "json": await request.json()})

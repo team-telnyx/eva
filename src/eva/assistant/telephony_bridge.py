@@ -190,8 +190,17 @@ class BaseTelephonyTransport(ABC):
         """Return the platform-specific call identifier, if available.
 
         For Call Control transports this is the call_control_id assigned by
-        Telnyx after the call is placed. Used for conversation API lookups
-        and tool webhook routing.
+        Telnyx after the call is placed. Used for conversation API lookups.
+        """
+        return None
+
+    @property
+    def call_session_id(self) -> str | None:
+        """Return the call_session_id shared across both call legs, if available.
+
+        Used for tool webhook routing because ``{{call_session_id}}`` resolves
+        to the same value on both A-leg and B-leg, eliminating the need for
+        B-leg guessing with concurrent calls.
         """
         return None
 
@@ -443,13 +452,15 @@ class TelephonyBridgeServer:
         try:
             await self._transport.start()
 
-            # After transport starts, register the call_control_id with the webhook
-            # so tool calls routed by {{call_control_id}} find the right executor
-            cc_id = self._transport.external_call_id
-            if cc_id:
+            # After transport starts, register the call_session_id with the webhook
+            # so tool calls routed by {{call_session_id}} find the right executor.
+            # call_session_id is shared across A-leg and B-leg, so this is
+            # deterministic even with concurrent calls.
+            session_id = self._transport.call_session_id
+            if session_id:
                 if self._tool_webhook_register_callback:
-                    await self._tool_webhook_register_callback(cc_id)
-                    logger.info("Registered call_control_id %s for tool webhooks", cc_id)
+                    await self._tool_webhook_register_callback(session_id)
+                    logger.info("Registered call_session_id %s for tool webhooks", session_id)
 
             # Monitor both the user sim WebSocket and the transport disconnect event.
             # When the Telnyx assistant hangs up, the media stream closes and
@@ -645,8 +656,9 @@ class TelephonyBridgeServer:
             return
 
         call_control_id = self._transport.external_call_id
-        if not call_control_id:
-            logger.warning("No call_control_id available — cannot fetch conversation messages")
+        session_id = self._transport.call_session_id
+        if not call_control_id and not session_id:
+            logger.warning("No call_control_id or call_session_id available — cannot fetch conversation messages")
             return
 
         api_key = self.bridge_config.telnyx_api_key
@@ -659,20 +671,34 @@ class TelephonyBridgeServer:
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
-                # Look up the conversation by call_control_id using PostgREST metadata filter
-                resp = await client.get(
-                    base_url,
-                    params={
-                        "metadata->call_control_id": f"eq.{call_control_id}",
-                        "limit": 1,
-                    },
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                conversations = resp.json().get("data", [])
+                # Look up the conversation by call_control_id first, then fall back
+                # to call_session_id. The Conversations API stores the B-leg's
+                # call_control_id in metadata, which differs from our A-leg ID.
+                # call_session_id is shared across legs and may be a more reliable
+                # lookup key.
+                conversations: list[dict] = []
+                for filter_key, filter_value in [
+                    ("metadata->call_control_id", call_control_id),
+                    ("metadata->call_session_id", session_id),
+                ]:
+                    if not filter_value:
+                        continue
+                    resp = await client.get(
+                        base_url,
+                        params={filter_key: f"eq.{filter_value}", "limit": 1},
+                        headers=headers,
+                    )
+                    resp.raise_for_status()
+                    conversations = resp.json().get("data", [])
+                    if conversations:
+                        break
 
                 if not conversations:
-                    logger.warning("Could not find conversation for call_control_id=%s", call_control_id)
+                    logger.warning(
+                        "Could not find conversation for call_control_id=%s / call_session_id=%s",
+                        call_control_id,
+                        session_id,
+                    )
                     return
 
                 conv_id = conversations[0]["id"]

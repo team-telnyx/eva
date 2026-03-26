@@ -197,7 +197,7 @@ class TelnyxAssistantManager:
             "webhook": {
                 "name": tool.id,
                 "description": tool.description,
-                "url": f"{webhook_base_url}/tools/{{{{call_control_id}}}}/{tool.id}",
+                "url": f"{webhook_base_url}/tools/{{{{call_session_id}}}}/{tool.id}",
                 "method": "POST",
                 "path_parameters": {"type": "object", "properties": {}},
                 "query_parameters": {"type": "object", "properties": {}},

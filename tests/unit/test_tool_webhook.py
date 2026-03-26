@@ -83,6 +83,43 @@ class TestToolWebhookService:
         executor.execute.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_register_call_session_id_routes_by_session(self, webhook_service: ToolWebhookService):
+        """call_session_id alias routes tool calls to the correct conversation."""
+        executor = MagicMock()
+        executor.execute = AsyncMock(return_value={"status": "routed"})
+        await webhook_service.register_conversation("record-1", executor)
+        await webhook_service.register_call_session_id("session-abc-123", "record-1")
+
+        async with await _make_client(webhook_service) as client:
+            response = await client.post("/tools/session-abc-123/get_reservation", json={"id": "R1"})
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "routed"}
+        executor.execute.assert_awaited_once_with("get_reservation", {"id": "R1"})
+
+    @pytest.mark.asyncio
+    async def test_concurrent_sessions_route_independently(self, webhook_service: ToolWebhookService):
+        """Two concurrent conversations with different session IDs route correctly."""
+        executor_a = MagicMock()
+        executor_a.execute = AsyncMock(return_value={"agent": "A"})
+        executor_b = MagicMock()
+        executor_b.execute = AsyncMock(return_value={"agent": "B"})
+
+        await webhook_service.register_conversation("record-a", executor_a)
+        await webhook_service.register_conversation("record-b", executor_b)
+        await webhook_service.register_call_session_id("session-111", "record-a")
+        await webhook_service.register_call_session_id("session-222", "record-b")
+
+        async with await _make_client(webhook_service) as client:
+            resp_a = await client.post("/tools/session-111/get_reservation", json={})
+            resp_b = await client.post("/tools/session-222/get_reservation", json={})
+
+        assert resp_a.json() == {"agent": "A"}
+        assert resp_b.json() == {"agent": "B"}
+        executor_a.execute.assert_awaited_once()
+        executor_b.execute.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_unregister_conversation_removes_audit_log(self, webhook_service: ToolWebhookService):
         executor = MagicMock()
         executor.execute = AsyncMock(return_value={"status": "success"})

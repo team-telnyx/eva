@@ -97,10 +97,10 @@ External assistants call tools by hitting webhook URLs. The tool webhook service
 
 Configure your assistant's tools with URL template:
 ```
-https://your-domain.ngrok-free.dev/tools/{{call_control_id}}/{tool_name}
+https://your-domain.ngrok-free.dev/tools/{{call_session_id}}/{tool_name}
 ```
 
-The `{{call_control_id}}` dynamic variable is resolved by Telnyx at runtime.
+The `{{call_session_id}}` dynamic variable is resolved by Telnyx at runtime. We use `call_session_id` rather than `call_control_id` because it is shared across both legs of the call (A-leg placed by EVA and B-leg answered by the assistant), which enables deterministic webhook routing even with concurrent benchmark calls.
 
 ## Latency Measurement
 
