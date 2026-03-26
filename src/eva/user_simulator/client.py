@@ -13,6 +13,7 @@ from typing import Optional
 import httpx
 from elevenlabs.client import ElevenLabs
 from elevenlabs.conversational_ai.conversation import (
+    ClientTools,
     Conversation,
     ConversationInitiationData,
 )
@@ -82,6 +83,18 @@ class UserSimulator:
         # Keep-alive inactivity detection
         self._consecutive_keepalive_count = 0
         self._max_consecutive_keepalives = 12  # End call after this many pings without activity (2 minutes)
+
+    def _handle_end_call(self, params: dict) -> str:
+        """Handle end_call client tool from ElevenLabs agent.
+
+        Called when the user sim agent decides the conversation is over
+        (e.g., after saying goodbye). Signals conversation end immediately
+        instead of relying on post-hoc API polling.
+        """
+        logger.info(f"end_call tool invoked by ElevenLabs agent: {params}")
+        self.event_logger.log_event("end_call_tool", params)
+        self._on_conversation_end("goodbye")
+        return "Call ended successfully."
 
     def _on_conversation_end(self, reason: str = "goodbye") -> None:
         """Signal conversation completion.
@@ -183,12 +196,20 @@ class UserSimulator:
 
             self._client = client
 
+            # Register end_call client tool so the ElevenLabs agent can hang up
+            client_tools = ClientTools()
+            client_tools.register(
+                "end_call",
+                lambda params: self._handle_end_call(params),
+            )
+
             self._conversation = Conversation(
                 client,
                 ELEVENLABS_USER_AGENT_ID,
                 config=config,
                 requires_auth=True,
                 audio_interface=self._audio_interface,
+                client_tools=client_tools,
                 callback_agent_response=self._on_user_speaks,
                 callback_agent_response_correction=self._on_user_response_correction,
                 callback_user_transcript=self._on_assistant_speaks,
