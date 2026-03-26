@@ -222,7 +222,7 @@ async def run_user_turn(
     content = getattr(response, "content", "") or (response if isinstance(response, str) else "")
 
     # Fallback: detect end_call emitted as text instead of structured tool call.
-    if "end_call" in content and (content.strip().startswith(("{", "[", "<")) or "functions.end_call" in content):
+    if "functions.end_call" in content or ("end_call" in content and content.strip().startswith(("{", "[", "<"))):
         return "", True
 
     return content, False
