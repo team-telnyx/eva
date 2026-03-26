@@ -195,17 +195,13 @@ class BaseTelephonyTransport(ABC):
         return None
 
     @property
-    def call_session_id(self) -> str | None:
-        """Return the Telnyx call_session_id, if available."""
-        return None
-
-    @property
     def eva_call_id(self) -> str | None:
         """Return the EVA-generated call ID for tool webhook routing.
 
         Generated before dialing and passed as a custom SIP header
-        (``X-Eva-Call-Id``). The assistant resolves it as ``{{eva_call_id}}``
-        in webhook URLs.
+        (``X-Eva-Call-Id``). The Telnyx AI assistant resolves it as the
+        dynamic variable ``{{eva_call_id}}`` in webhook URLs, providing a
+        deterministic routing key that EVA controls.
         """
         return None
 

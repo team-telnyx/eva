@@ -160,7 +160,8 @@ class TelnyxAssistantManager:
             },
             "telephony_settings": {
                 "supports_unauthenticated_web_calls": True,
-                "time_limit_secs": 1800,
+                "time_limit_secs": 600,
+                "user_idle_timeout_secs": 60,
             },
             "interruption_settings": {
                 "enable": True,

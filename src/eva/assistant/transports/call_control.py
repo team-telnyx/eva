@@ -90,18 +90,14 @@ class CallControlTransport(BaseTelephonyTransport):
         return self._call_control_id
 
     @property
-    def call_session_id(self) -> str | None:
-        """Return the Telnyx call_session_id once the call is placed."""
-        return self._call_session_id
-
-    @property
     def eva_call_id(self) -> str | None:
         """Return the EVA-generated call ID used for tool webhook routing.
 
-        This ID is generated before dialing and passed as the ``X-Eva-Call-Id``
-        SIP header. The Telnyx AI assistant resolves it as ``{{eva_call_id}}``
-        in webhook URLs, providing a deterministic routing key that EVA
-        controls — independent of platform-assigned call IDs.
+        Generated before dialing and passed as the ``X-Eva-Call-Id`` custom
+        header. The Telnyx AI assistant resolves it as the dynamic variable
+        ``{{eva_call_id}}`` in webhook URLs, providing a deterministic routing
+        key that EVA controls — independent of platform-assigned call IDs
+        (which differ between A-leg and B-leg).
         """
         return self._eva_call_id
 

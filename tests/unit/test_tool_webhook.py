@@ -83,12 +83,12 @@ class TestToolWebhookService:
         executor.execute.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_register_call_session_id_routes_by_session(self, webhook_service: ToolWebhookService):
+    async def test_register_route_id_routes_by_session(self, webhook_service: ToolWebhookService):
         """call_session_id alias routes tool calls to the correct conversation."""
         executor = MagicMock()
         executor.execute = AsyncMock(return_value={"status": "routed"})
         await webhook_service.register_conversation("record-1", executor)
-        await webhook_service.register_call_session_id("session-abc-123", "record-1")
+        await webhook_service.register_route_id("session-abc-123", "record-1")
 
         async with await _make_client(webhook_service) as client:
             response = await client.post("/tools/session-abc-123/get_reservation", json={"id": "R1"})
@@ -107,8 +107,8 @@ class TestToolWebhookService:
 
         await webhook_service.register_conversation("record-a", executor_a)
         await webhook_service.register_conversation("record-b", executor_b)
-        await webhook_service.register_call_session_id("session-111", "record-a")
-        await webhook_service.register_call_session_id("session-222", "record-b")
+        await webhook_service.register_route_id("session-111", "record-a")
+        await webhook_service.register_route_id("session-222", "record-b")
 
         async with await _make_client(webhook_service) as client:
             resp_a = await client.post("/tools/session-111/get_reservation", json={})
@@ -125,7 +125,7 @@ class TestToolWebhookService:
         executor = MagicMock()
         executor.execute = AsyncMock(return_value={"ok": True})
         await webhook_service.register_conversation("record-x", executor)
-        await webhook_service.register_call_session_id("session-xyz", "record-x")
+        await webhook_service.register_route_id("session-xyz", "record-x")
 
         # Both keys work before unregister
         async with await _make_client(webhook_service) as client:
