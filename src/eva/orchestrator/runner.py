@@ -122,6 +122,13 @@ class BenchmarkRunner:
         """
         await self._start_support_services()
 
+        try:
+            return await self._run_with_validation_inner(records)
+        finally:
+            await self._stop_support_services()
+
+    async def _run_with_validation_inner(self, records: list[EvaluationRecord]) -> RunResult:
+        """Inner implementation of run() — separated so the caller can wrap with finally."""
         if not self.config.tool_module_path:
             self.config.tool_module_path = self.agent.tool_module_path
         try:
@@ -387,8 +394,6 @@ class BenchmarkRunner:
         logger.info(f"  Total attempts used: {attempt_number}")
         logger.info(f"{'=' * 60}\n")
 
-        await self._stop_support_services()
-
         return RunResult(
             run_id=self.config.run_id,
             total_records=total_tasks,
@@ -586,6 +591,30 @@ class BenchmarkRunner:
         if pending_ids:
             await self._start_support_services()
 
+        try:
+            return await self._rerun_failed_records(
+                pending_ids, max_attempts, output_id_to_record, records_dir,
+                rerun_history, total_passed, already_passed_ids, filtered_records,
+                started_at, needs_validation_ids, failed_ids,
+            )
+        finally:
+            await self._stop_support_services()
+
+    async def _rerun_failed_records(
+        self,
+        pending_ids: list[str],
+        max_attempts: int,
+        output_id_to_record: dict[str, EvaluationRecord],
+        records_dir: Path,
+        rerun_history: dict[str, list[dict]],
+        total_passed: int,
+        already_passed_ids: set[str],
+        filtered_records: list[EvaluationRecord],
+        started_at,
+        needs_validation_ids: list[str],
+        failed_ids: list[str],
+    ) -> RunResult:
+        """Rerun failed records — extracted so validate_existing can wrap with try/finally."""
         for attempt_number in range(1, max_attempts + 1):
             if not pending_ids:
                 break
@@ -662,8 +691,6 @@ class BenchmarkRunner:
             if not pending_ids:
                 logger.info("All rerun records now pass validation!")
                 break
-
-        await self._stop_support_services()
 
         if pending_ids:
             logger.warning(f"{len(pending_ids)} tasks still failing after {max_attempts} attempts")
