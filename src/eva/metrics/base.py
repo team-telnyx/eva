@@ -371,9 +371,13 @@ class PerTurnConversationJudgeMetric(TextJudgeMetric):
     def get_expected_turn_ids(self, context: MetricContext) -> list[int]:
         """Return the ordered list of turn IDs that the judge should rate."""
 
+    def get_transcript_trace(self, context: MetricContext) -> list[dict]:
+        """Return the trace to format for the judge prompt."""
+        return context.conversation_trace
+
     def format_transcript(self, context: MetricContext) -> str:
         """Format conversation content for the judge prompt. Can be overridden."""
-        return format_transcript_with_tools(context.conversation_trace)
+        return format_transcript_with_tools(self.get_transcript_trace(context))
 
     @abstractmethod
     def get_prompt_variables(self, context: MetricContext, transcript_text: str) -> dict[str, Any]:
