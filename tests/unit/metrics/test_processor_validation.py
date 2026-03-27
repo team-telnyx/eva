@@ -169,3 +169,169 @@ def test_extract_turns_populates_message_trace_for_continuous_stream_without_pip
         },
         {"role": "assistant", "content": "I found your reservation.", "timestamp": 6000, "type": "intended", "turn_id": 0},
     ]
+
+
+def test_extract_turns_aligns_telnyx_assistant_speech_to_previous_turn_on_same_timestamp():
+    ctx = _ProcessorContext()
+    ctx.record_id = "telnyx-assistant-speech-alignment"
+    ctx.history = [
+        {
+            "timestamp_ms": 1000,
+            "source": "elevenlabs",
+            "event_type": "audio_start",
+            "data": {"user": "pipecat_agent", "audio_timestamp": 1.0},
+        },
+        {
+            "timestamp_ms": 1800,
+            "source": "elevenlabs",
+            "event_type": "assistant_speech",
+            "data": {"data": {"text": "Hello there."}},
+        },
+        {
+            "timestamp_ms": 1800,
+            "source": "elevenlabs",
+            "event_type": "audio_start",
+            "data": {"user": "elevenlabs_user", "audio_timestamp": 1.8},
+        },
+        {
+            "timestamp_ms": 1900,
+            "source": "elevenlabs",
+            "event_type": "user_speech",
+            "data": {"data": {"text": "I need help"}},
+        },
+        {
+            "timestamp_ms": 2400,
+            "source": "elevenlabs",
+            "event_type": "audio_end",
+            "data": {"user": "elevenlabs_user", "audio_timestamp": 2.4},
+        },
+        {
+            "timestamp_ms": 3200,
+            "source": "elevenlabs",
+            "event_type": "assistant_speech",
+            "data": {"data": {"text": "Sure, what do you need?"}},
+        },
+        {
+            "timestamp_ms": 3200,
+            "source": "elevenlabs",
+            "event_type": "audio_start",
+            "data": {"user": "elevenlabs_user", "audio_timestamp": 3.2},
+        },
+        {
+            "timestamp_ms": 3300,
+            "source": "elevenlabs",
+            "event_type": "user_speech",
+            "data": {"data": {"text": "Thanks, goodbye"}},
+        },
+        {
+            "timestamp_ms": 3600,
+            "source": "elevenlabs",
+            "event_type": "audio_end",
+            "data": {"user": "elevenlabs_user", "audio_timestamp": 3.6},
+        },
+        {
+            "timestamp_ms": 4200,
+            "source": "elevenlabs",
+            "event_type": "assistant_speech",
+            "data": {"data": {"text": "Goodbye."}},
+        },
+        {
+            "timestamp_ms": 5000,
+            "source": "elevenlabs",
+            "event_type": "audio_end",
+            "data": {"user": "pipecat_agent", "audio_timestamp": 5.0},
+        },
+        {
+            "timestamp_ms": 5100,
+            "source": "elevenlabs",
+            "event_type": "connection_state",
+            "data": {"data": {"state": "session_ended"}},
+        },
+    ]
+
+    MetricsContextProcessor._extract_turns_from_history(ctx)
+
+    assert ctx.is_continuous_assistant_stream is True
+    assert ctx.transcribed_assistant_turns[0].startswith("Hello there.")
+    assert ctx.transcribed_assistant_turns[1].startswith("Sure, what do you need?")
+    assert ctx.transcribed_assistant_turns[2] == "Goodbye."
+
+
+def test_synthesize_telnyx_message_native_stream_replaces_collapsed_assistant_spans():
+    ctx = _ProcessorContext()
+    ctx.record_id = "telnyx-synthesis"
+    ctx.history = [
+        {
+            "timestamp_ms": 1000,
+            "source": "elevenlabs",
+            "event_type": "audio_start",
+            "data": {"user": "pipecat_agent", "audio_timestamp": 1.0},
+        },
+        {
+            "timestamp_ms": 20000,
+            "source": "elevenlabs",
+            "event_type": "audio_end",
+            "data": {"user": "pipecat_agent", "audio_timestamp": 20.0},
+        },
+    ]
+    ctx.is_continuous_assistant_stream = True
+    ctx.response_speed_latencies = [0.5, 0.6]
+    ctx.intended_assistant_turns = {0: "Hello.", 1: "Sure.", 2: "Goodbye."}
+    ctx.audio_timestamps_assistant_turns = {
+        0: [(1.0, 20.0)],
+        1: [(10.0, 10.0)],
+        2: None,
+    }
+    ctx.audio_timestamps_user_turns = {
+        1: [(3.0, 4.0)],
+        2: [(8.0, 9.0)],
+        3: [(12.0, 13.0)],
+    }
+
+    MetricsContextProcessor._synthesize_continuous_stream_timestamps(ctx)
+
+    assert ctx.audio_timestamps_assistant_turns == {
+        0: [(1.0, 3.0)],
+        1: [(4.5, 8.0)],
+        2: [(9.6, 12.0)],
+    }
+
+
+def test_synthesize_continuous_stream_preserves_existing_pipecat_turns():
+    ctx = _ProcessorContext()
+    ctx.record_id = "pipecat-continuous-guard"
+    ctx.history = [
+        {"timestamp_ms": 1000, "source": "pipecat", "event_type": "tts_text", "data": {"frame": "Hello."}},
+        {
+            "timestamp_ms": 1100,
+            "source": "elevenlabs",
+            "event_type": "audio_start",
+            "data": {"user": "pipecat_agent", "audio_timestamp": 1.1},
+        },
+        {
+            "timestamp_ms": 5000,
+            "source": "elevenlabs",
+            "event_type": "audio_end",
+            "data": {"user": "pipecat_agent", "audio_timestamp": 5.0},
+        },
+    ]
+    ctx.is_continuous_assistant_stream = True
+    ctx.response_speed_latencies = [0.5, 0.6]
+    ctx.intended_assistant_turns = {0: "Hello.", 1: "Sure.", 2: "Goodbye."}
+    ctx.audio_timestamps_assistant_turns = {
+        0: [(1.1, 2.5)],
+        1: [(4.6, 5.2)],
+        2: None,
+    }
+    ctx.audio_timestamps_user_turns = {
+        1: [(3.0, 4.0)],
+        2: [(8.0, 9.0)],
+    }
+
+    MetricsContextProcessor._synthesize_continuous_stream_timestamps(ctx)
+
+    assert ctx.audio_timestamps_assistant_turns == {
+        0: [(1.1, 2.5)],
+        1: [(4.6, 5.2)],
+        2: [(9.6, 14.6)],
+    }
