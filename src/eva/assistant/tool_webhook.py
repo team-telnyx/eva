@@ -244,7 +244,7 @@ class ToolWebhookService:
             logger.info(f"Executed webhook tool {tool_name} for call {call_id}")
             return result
 
-        @self._app.websocket("/media-stream/{conversation_id}")
+        @self._app.websocket("/media-stream/{conversation_id:path}")
         async def media_stream(websocket: WebSocket, conversation_id: str) -> None:
             """Accept Telnyx Call Control media stream connections."""
             from eva.assistant.transports.call_control import get_active_transport
