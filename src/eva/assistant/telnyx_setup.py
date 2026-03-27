@@ -155,7 +155,7 @@ class TelnyxAssistantManager:
                 "settings": {
                     "eot_threshold": 0.8,
                     "eot_timeout_ms": 5000,
-                    "eager_eot_threshold": 0.4,
+                    "eager_eot_threshold": 0.8,
                 },
             },
             "telephony_settings": {
