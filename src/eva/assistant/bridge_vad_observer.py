@@ -22,6 +22,14 @@ ASSISTANT_EVENT_ROLE = "pipecat_agent"
 USER_SPEECH_SOURCE = "elevenlabs_agent"
 ASSISTANT_SPEECH_SOURCE = "pipecat_assistant"
 
+# Coalescing: merge speech segments separated by less than this gap into one turn.
+# TTS often pauses 0.5-1.5s between sentences; raw VAD would fragment these into
+# dozens of micro-segments. This merges them so the processor sees one audio_start/end
+# per conversational turn.
+TURN_MERGE_GAP_SECONDS = 2.0
+# Minimum segment audio duration to send for transcription (avoid Deepgram noise).
+MIN_SEGMENT_DURATION_SECONDS = 0.3
+
 
 class SegmentTranscriber(Protocol):
     """Protocol for segment transcribers used by the bridge observer."""
@@ -32,7 +40,15 @@ class SegmentTranscriber(Protocol):
 
 @dataclass(slots=True)
 class _StreamState:
-    """Per-stream VAD and buffering state."""
+    """Per-stream VAD and buffering state with turn coalescing.
+
+    Instead of emitting audio_start/audio_end on every raw VAD transition,
+    we coalesce nearby speech into turns:
+    - When speech starts and no turn is open, open a new turn (emit audio_start).
+    - When VAD goes quiet, record the silence start time but DON'T emit audio_end yet.
+    - If speech resumes within TURN_MERGE_GAP_SECONDS, continue the same turn.
+    - If silence exceeds the gap, close the turn (emit audio_end), transcribe, etc.
+    """
 
     role: str
     speech_event_type: str
@@ -42,8 +58,12 @@ class _StreamState:
     vad: Any
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     last_state: VADState = VADState.QUIET
+
+    # Turn-level state (coalesced)
+    turn_open: bool = False
+    turn_started_at: float | None = None
+    silence_started_at: float | None = None
     buffered_audio: bytearray | None = None
-    speech_started_at: float | None = None
 
 
 class BridgeVADObserver:
@@ -229,54 +249,70 @@ class BridgeVADObserver:
         async with stream.lock:
             state = await stream.vad.analyze_audio(pcm_bytes)
 
-            if state != VADState.QUIET and stream.buffered_audio is None:
-                stream.buffered_audio = bytearray()
-
+            # Always buffer audio while a turn is open (even during brief silence gaps).
             if stream.buffered_audio is not None:
                 stream.buffered_audio.extend(pcm_bytes)
 
-            if state == VADState.SPEAKING and stream.last_state in {VADState.QUIET, VADState.STARTING}:
-                stream.speech_started_at = timestamp
-                await self._log_audio_boundary("audio_start", stream.role, timestamp)
-                if stream.role == ASSISTANT_EVENT_ROLE and self._pending_user_speech_end is not None:
-                    latency = round(timestamp - self._pending_user_speech_end, 4)
-                    if latency > 0:
-                        self._response_latencies.append(latency)
-                    self._pending_user_speech_end = None
+            # --- Speech detected ---
+            if state in {VADState.SPEAKING, VADState.STARTING}:
+                if not stream.turn_open:
+                    # New turn: open it and emit audio_start.
+                    stream.turn_open = True
+                    stream.turn_started_at = timestamp
+                    stream.silence_started_at = None
+                    stream.buffered_audio = bytearray(pcm_bytes)
+                    await self._log_audio_boundary("audio_start", stream.role, timestamp)
+                    # Measure response latency (user speech end → assistant speech start).
+                    if stream.role == ASSISTANT_EVENT_ROLE and self._pending_user_speech_end is not None:
+                        latency = round(timestamp - self._pending_user_speech_end, 4)
+                        if latency > 0:
+                            self._response_latencies.append(latency)
+                        self._pending_user_speech_end = None
+                else:
+                    # Speech resumed within the merge gap — cancel the pending silence.
+                    stream.silence_started_at = None
 
-            if state == VADState.QUIET and stream.last_state in {VADState.SPEAKING, VADState.STOPPING}:
-                segment_audio = bytes(stream.buffered_audio or b"")
-                speech_started_at = stream.speech_started_at
-                stream.buffered_audio = None
-                stream.speech_started_at = None
-
-                await self._log_audio_boundary("audio_end", stream.role, timestamp)
-                if stream.role == USER_EVENT_ROLE:
-                    self._pending_user_speech_end = timestamp
-
-                if speech_started_at is not None and segment_audio:
-                    self._schedule_transcription(stream, segment_audio, speech_started_at)
-            elif state == VADState.QUIET and stream.last_state == VADState.STARTING:
-                stream.buffered_audio = None
-                stream.speech_started_at = None
+            # --- Silence detected ---
+            elif state in {VADState.QUIET, VADState.STOPPING}:
+                if stream.turn_open:
+                    if stream.silence_started_at is None:
+                        # Just went quiet — start the merge gap timer.
+                        stream.silence_started_at = timestamp
+                    elif (timestamp - stream.silence_started_at) >= TURN_MERGE_GAP_SECONDS:
+                        # Silence exceeded the merge gap — close the turn.
+                        await self._close_turn(stream, stream.silence_started_at)
 
             stream.last_state = state
 
+    async def _close_turn(self, stream: _StreamState, end_timestamp: float) -> None:
+        """Close an open turn: emit audio_end, schedule transcription, update latency tracking."""
+        segment_audio = bytes(stream.buffered_audio or b"")
+        turn_started_at = stream.turn_started_at
+
+        stream.turn_open = False
+        stream.buffered_audio = None
+        stream.turn_started_at = None
+        stream.silence_started_at = None
+
+        await self._log_audio_boundary("audio_end", stream.role, end_timestamp)
+
+        if stream.role == USER_EVENT_ROLE:
+            self._pending_user_speech_end = end_timestamp
+
+        # Only transcribe segments with enough actual speech content.
+        if turn_started_at is not None and segment_audio:
+            duration = end_timestamp - turn_started_at
+            if duration >= MIN_SEGMENT_DURATION_SECONDS:
+                self._schedule_transcription(stream, segment_audio, turn_started_at)
+
     async def _finalize_stream(self, stream: _StreamState, timestamp: float) -> None:
         async with stream.lock:
-            if stream.last_state in {VADState.SPEAKING, VADState.STOPPING} and stream.speech_started_at is not None:
-                segment_audio = bytes(stream.buffered_audio or b"")
-                speech_started_at = stream.speech_started_at
-
-                await self._log_audio_boundary("audio_end", stream.role, timestamp)
-                if stream.role == USER_EVENT_ROLE:
-                    self._pending_user_speech_end = timestamp
-
-                if segment_audio:
-                    self._schedule_transcription(stream, segment_audio, speech_started_at)
+            if stream.turn_open:
+                await self._close_turn(stream, timestamp)
 
             stream.buffered_audio = None
-            stream.speech_started_at = None
+            stream.turn_started_at = None
+            stream.silence_started_at = None
             stream.last_state = VADState.QUIET
 
     async def finalize(
