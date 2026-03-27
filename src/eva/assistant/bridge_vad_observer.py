@@ -236,11 +236,28 @@ class BridgeVADObserver:
 
     async def feed_user_audio(self, pcm_bytes: bytes, timestamp: float) -> None:
         """Process a user PCM chunk at an epoch-seconds timestamp."""
+        await self._check_cross_stream_timeout(self._assistant_stream, timestamp)
         await self._feed_stream(self._user_stream, pcm_bytes, timestamp)
 
     async def feed_assistant_audio(self, pcm_bytes: bytes, timestamp: float) -> None:
         """Process an assistant PCM chunk at an epoch-seconds timestamp."""
+        await self._check_cross_stream_timeout(self._user_stream, timestamp)
         await self._feed_stream(self._assistant_stream, pcm_bytes, timestamp)
+
+    async def _check_cross_stream_timeout(self, other_stream: _StreamState, timestamp: float) -> None:
+        """Close the other stream's turn if its silence has exceeded the merge gap.
+
+        This handles the case where one stream stops sending audio (e.g., user sim
+        stops between utterances) but the other stream is still active. Without this,
+        turns would only close when their own stream feeds new audio.
+        """
+        async with other_stream.lock:
+            if (
+                other_stream.turn_open
+                and other_stream.silence_started_at is not None
+                and (timestamp - other_stream.silence_started_at) >= TURN_MERGE_GAP_SECONDS
+            ):
+                await self._close_turn(other_stream, other_stream.silence_started_at)
 
     async def _feed_stream(self, stream: _StreamState, pcm_bytes: bytes, timestamp: float) -> None:
         if self._finalized or not pcm_bytes:
