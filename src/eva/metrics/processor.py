@@ -89,14 +89,6 @@ class _TurnExtractionState:
     # the user is interrupting the assistant (assistant_audio_open), this is the same utterance — skip the advance so
     # user_speech lands at the same turn.
     rollback_advance_consumed_by_user: bool = False
-    # Whether pipecat_agent had a single continuous audio stream (Telnyx telephony).
-    is_continuous_assistant_stream: bool = False
-    # Timestamp of the latest ElevenLabs user audio_start event. Used to attribute
-    # assistant_speech emitted at the same millisecond to the preceding turn.
-    last_user_audio_start_timestamp_ms: int | None = None
-    # Per-turn intended text from audit_log assistant events, used as fallback when
-    # pipecat tts_text events don't populate intended_assistant_turns for a given turn.
-    audit_log_intended_turns: dict[int, list[str]] = field(default_factory=dict)
 
     def advance_turn_if_needed(self) -> None:
         """Advance turn if the assistant responded since the last user event.
@@ -248,14 +240,9 @@ def _handle_audit_log_event(
                 "_audit_source": True,
             }
         )
-        # Also populate intended_assistant_turns from audit_log as a fallback source.
-        # Pipecat tts_text events are the primary source (more granular), but for turns
-        # where pipecat events aren't available (e.g. Telnyx telephony bridge enriched
-        # from Conversations API), the audit_log provides the intended text.
-        # Track which turns got audit_log text; _finalize_extraction merges them only
-        # for turns that pipecat didn't already populate.
         state.assistant_spoke_in_turn = True
-        state.audit_log_intended_turns.setdefault(turn, []).append(content)
+        if turn not in context._intended_assistant_segments:
+            append_turn_text(context.intended_assistant_turns, turn, content, "\n" if turn in context.intended_assistant_turns else "")
 
     elif event["event_type"] in ("tool_call", "tool_response"):
         state.assistant_processed_in_turn = True
@@ -278,6 +265,8 @@ def _handle_pipecat_event(
         return
     state.assistant_spoke_in_turn = True
     turn = state.turn_num
+    if turn in context.intended_assistant_turns and turn not in context._intended_assistant_segments:
+        context.intended_assistant_turns.pop(turn, None)
     existing = context.intended_assistant_turns.get(turn, "")
 
     if existing:
@@ -326,7 +315,6 @@ def _handle_audio_start(
     timestamp = event["data"]["audio_timestamp"]
 
     if role == "elevenlabs_user":
-        state.last_user_audio_start_timestamp_ms = event["timestamp_ms"]
         if state.assistant_audio_open:
             # User interrupts assistant — apply "[likely cut off by user]" labels to the OLD turn now,
             # then advance so the user's retry starts a new turn.
@@ -418,23 +406,6 @@ def _handle_elevenlabs_event(
         # Use the turn where assistant audio started, not the current turn — ElevenLabs transcripts can
         # arrive after a user audio_start has already advanced the turn.
         turn = state.last_assistant_audio_turn
-        # Telnyx assistant_speech often lands at the exact millisecond as the next
-        # user audio_start. The audio_start has already advanced the turn counter, so
-        # the speech belongs to the immediately preceding assistant turn.
-        if (
-            state.user_audio_open
-            and state.last_user_audio_start_timestamp_ms == event["timestamp_ms"]
-            and state.turn_num > 0
-        ):
-            turn = state.turn_num - 1
-            state.last_assistant_audio_turn = turn
-        # For continuous audio streams (e.g., Telnyx telephony bridge), the agent has a single
-        # audio_start for the entire call. When the assistant speaks after the user has finished
-        # (new turn), update last_assistant_audio_turn to the current turn so speech is attributed
-        # correctly and turn advancement works.
-        if turn != state.turn_num and not state.user_audio_open and state.assistant_audio_open:
-            turn = state.turn_num
-            state.last_assistant_audio_turn = turn
         # Only mark "assistant spoke" if the speech belongs to the current turn; late transcripts from a
         # previous turn must not trigger a spurious turn advance.
         if turn == state.turn_num:
@@ -496,33 +467,6 @@ def _pair_audio_segments(state: "_TurnExtractionState", context: "_ProcessorCont
         if segments:
             getattr(context, AUDIO_ATTR[role])[turn_idx] = segments
 
-    # Detect continuous assistant audio stream (e.g. Telnyx telephony bridge).
-    # Synthesis happens later in _synthesize_continuous_stream_timestamps using
-    # pipecat's measured response latencies for accuracy.
-    agent_keys = [k for k in state.audio_starts if k[0] == "pipecat_agent"]
-    if len(agent_keys) == 1:
-        state.is_continuous_assistant_stream = True
-
-
-def _has_pipecat_assistant_text(history: list[dict]) -> bool:
-    """Return True when local Pipecat assistant text exists in the merged history."""
-    return any(
-        event["source"] == "pipecat" and event["event_type"] in ("tts_text", "llm_response")
-        for event in history
-    )
-
-
-def _uses_telnyx_message_native_stream(context: "_ProcessorContext") -> bool:
-    """Return True for the Telnyx bridge path with assistant audio but no Pipecat text."""
-    has_assistant_audio = any(
-        event["source"] == "elevenlabs"
-        and event["event_type"] in ("audio_start", "audio_end")
-        and event["data"].get("user") == "pipecat_agent"
-        for event in context.history
-    )
-    return has_assistant_audio and not _has_pipecat_assistant_text(context.history)
-
-
 def _validate_conversation_trace(
     conversation_trace: list[dict],
     context: "_ProcessorContext",
@@ -539,6 +483,10 @@ def _validate_conversation_trace(
             continue
         turn_id = entry.get("turn_id")
         pipecat_segments = context._intended_assistant_segments.get(turn_id, [])
+        if not pipecat_segments:
+            entry.pop("_audit_source")
+            validated_trace.append(entry)
+            continue
         audit_text = entry.get("content", "")
         truncated = truncate_to_spoken(audit_text, pipecat_segments)
         if truncated is not None:
@@ -612,7 +560,6 @@ def _finalize_extraction(
     """Assign derived context variables, log results, and align turn keys across all sources."""
     context.assistant_interrupted_turns = state.assistant_interrupted_turns
     context.user_interrupted_turns = state.user_interrupted_turns
-    context.is_continuous_assistant_stream = state.is_continuous_assistant_stream
 
     all_interrupted = state.assistant_interrupted_turns | state.user_interrupted_turns
     if all_interrupted:
@@ -621,13 +568,6 @@ def _finalize_extraction(
             f"assistant interrupted user at turns {sorted(state.assistant_interrupted_turns)}, "
             f"user interrupted assistant at turns {sorted(state.user_interrupted_turns)}"
         )
-    # Merge audit_log intended text for turns that pipecat didn't populate.
-    # Pipecat tts_text is the primary source; audit_log/assistant is the fallback
-    # (e.g. Telnyx telephony bridge enriched from Conversations API).
-    for turn_id, texts in state.audit_log_intended_turns.items():
-        existing = context.intended_assistant_turns.get(turn_id, "")
-        if not existing:
-            context.intended_assistant_turns[turn_id] = "\n".join(texts)
 
     context.tool_params, context.tool_responses = extract_tool_params_and_responses(conversation_trace)
     context.tool_called = [t["tool_name"].lower() for t in context.tool_params]
@@ -821,9 +761,6 @@ class _ProcessorContext:
         # Response latencies from Pipecat's UserBotLatencyObserver
         self.response_speed_latencies: list[float] = []
 
-        # Whether pipecat_agent had a single continuous audio stream (Telnyx telephony)
-        self.is_continuous_assistant_stream: bool = False
-
         # Unified timeline of all events from all log sources
         self.history: list[dict] = []
 
@@ -858,7 +795,6 @@ class MetricsContextProcessor:
             self._build_history(context, output_dir, result)
             self._extract_turns_from_history(context)
             self._load_response_latencies(context, output_dir)
-            self._synthesize_continuous_stream_timestamps(context)
             self._reconcile_transcript_with_tools(context)
 
             return context
@@ -1015,9 +951,6 @@ class MetricsContextProcessor:
             state.session_end_ts = context.history[-1].get("timestamp_ms") / 1000.0
 
         _pair_audio_segments(state, context)
-        if _uses_telnyx_message_native_stream(context):
-            state.is_continuous_assistant_stream = True
-        context.is_continuous_assistant_stream = state.is_continuous_assistant_stream
         context.message_trace = _build_message_trace(conversation_trace)
         validated_trace = _validate_conversation_trace(conversation_trace, context)
         context.conversation_trace = group_consecutive_turns(validated_trace)
@@ -1089,89 +1022,6 @@ class MetricsContextProcessor:
                     )
 
         _reconcile_message_trace(context)
-
-    @staticmethod
-    def _synthesize_continuous_stream_timestamps(context: _ProcessorContext) -> None:
-        """Synthesize per-turn assistant audio timestamps for continuous streams.
-
-        For Telnyx telephony calls, pipecat_agent has a single audio_start/end for the
-        entire call (continuous RTP stream). Only turn 0 (greeting) gets real audio
-        timestamps. This method creates synthetic timestamps for other turns using
-        pipecat's measured response latencies (user_end + latency = assistant_start).
-        """
-        telnyx_message_native = _uses_telnyx_message_native_stream(context)
-        if not context.is_continuous_assistant_stream and not telnyx_message_native:
-            return
-        if not context.response_speed_latencies:
-            logger.warning(
-                f"Record {context.record_id}: Continuous assistant stream detected but no "
-                f"response latencies available — cannot synthesize assistant audio timestamps"
-            )
-            return
-
-        # Get user turns that have audio timestamps, sorted, excluding greeting (turn 0).
-        user_turns_with_audio = sorted(k for k, v in context.audio_timestamps_user_turns.items() if v and k > 0)
-        if not user_turns_with_audio:
-            return
-
-        latencies = context.response_speed_latencies
-        assistant_turn_ids = sorted(k for k in context.intended_assistant_turns if k > 0)
-        if not assistant_turn_ids:
-            return
-
-        user_turn_index = {turn_id: idx for idx, turn_id in enumerate(user_turns_with_audio)}
-        session_end = max((event["timestamp_ms"] / 1000.0 for event in context.history), default=None)
-        synthesized: list[int] = []
-
-        if telnyx_message_native and context.audio_timestamps_assistant_turns.get(0):
-            first_user_segments = context.audio_timestamps_user_turns.get(user_turns_with_audio[0])
-            if first_user_segments:
-                greeting = context.audio_timestamps_assistant_turns[0]
-                greeting_start = greeting[0][0]
-                greeting_end = min(greeting[-1][1], first_user_segments[0][0])
-                if greeting_end > greeting_start:
-                    context.audio_timestamps_assistant_turns[0] = [(greeting_start, greeting_end)]
-
-        for turn_id in assistant_turn_ids:
-            idx = user_turn_index.get(turn_id)
-            if idx is None or idx >= len(latencies):
-                continue
-
-            user_segments = context.audio_timestamps_user_turns.get(turn_id)
-            if not user_segments:
-                continue
-
-            assistant_start = user_segments[-1][1] + latencies[idx]
-            assistant_end: float | None = None
-
-            if idx + 1 < len(user_turns_with_audio):
-                next_turn = user_turns_with_audio[idx + 1]
-                next_user_segments = context.audio_timestamps_user_turns.get(next_turn)
-                if next_user_segments:
-                    assistant_end = next_user_segments[0][0]
-
-            if assistant_end is None:
-                existing = context.audio_timestamps_assistant_turns.get(turn_id)
-                if existing and existing[-1][1] > assistant_start:
-                    assistant_end = existing[-1][1]
-                elif session_end is not None and session_end > assistant_start:
-                    assistant_end = session_end
-                else:
-                    assistant_end = assistant_start + 5.0
-
-            if assistant_end <= assistant_start:
-                continue
-
-            existing = context.audio_timestamps_assistant_turns.get(turn_id)
-            if telnyx_message_native or not existing:
-                context.audio_timestamps_assistant_turns[turn_id] = [(assistant_start, assistant_end)]
-                synthesized.append(turn_id)
-
-        if synthesized:
-            logger.info(
-                f"Record {context.record_id}: Synthesized assistant audio timestamps for "
-                f"continuous stream using response latencies (turns {synthesized})"
-            )
 
     def _load_response_latencies(self, context: _ProcessorContext, output_dir: Path) -> bool:
         """Load response latencies from UserBotLatencyObserver.

@@ -4,11 +4,11 @@ import asyncio
 import base64
 import io
 import json
-import struct
+import time
 import wave
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -22,6 +22,7 @@ except ImportError:
     import audioop_lts as audioop
 
 from eva.assistant.agentic.audit_log import AuditLog
+from eva.assistant.bridge_vad_observer import BridgeVADObserver
 from eva.assistant.tools.tool_executor import ToolExecutor
 from eva.models.agents import AgentConfig
 from eva.models.config import TelephonyBridgeConfig
@@ -32,17 +33,6 @@ logger = get_logger(__name__)
 INPUT_SAMPLE_RATE = 16000
 OUTPUT_SAMPLE_RATE = 24000
 PCM_SAMPLE_WIDTH = 2
-# Maximum silence gap before starting a new speech segment. Controls turn
-# boundary detection for latency measurement: too short splits natural pauses
-# into separate turns (inflating latency count), too long merges distinct
-# turns (missing measurements). 750ms matches typical conversational cadence.
-SEGMENT_GAP_SECONDS = 0.75
-
-# RMS energy threshold for speech detection on 16-bit PCM audio at 24kHz
-# (after upsampling). Chunks below this are treated as silence for segment
-# boundary purposes. Tuned for telephony audio; increase if background
-# noise causes false speech detection.
-SPEECH_ENERGY_THRESHOLD = 300
 
 
 def _pcm16k_to_pcm24k(pcm_16khz: bytes) -> bytes:
@@ -89,21 +79,6 @@ def _append_timed_audio(buffer: bytearray, audio_data: bytes, offset_seconds: fl
         buffer[start_byte:end_byte] = audioop.add(existing, audio_data, PCM_SAMPLE_WIDTH)
     else:
         buffer[start_byte:end_byte] = audio_data
-
-
-@dataclass(slots=True)
-class AudioSegment:
-    """Buffered audio for a single role turn."""
-
-    role: str
-    started_at: float
-    ended_at: float
-    audio: bytearray = field(default_factory=bytearray)
-
-    def append(self, audio_data: bytes, timestamp: float) -> None:
-        self.audio.extend(audio_data)
-        duration_seconds = len(audio_data) / (OUTPUT_SAMPLE_RATE * PCM_SAMPLE_WIDTH)
-        self.ended_at = max(self.ended_at, timestamp + duration_seconds)
 
 
 class BaseSegmentTranscriber(ABC):
@@ -242,57 +217,18 @@ class _SessionState:
     user_audio: bytearray = field(default_factory=bytearray)
     assistant_audio: bytearray = field(default_factory=bytearray)
     mixed_audio: bytearray = field(default_factory=bytearray)
-    user_segments: list[AudioSegment] = field(default_factory=list)
-    assistant_segments: list[AudioSegment] = field(default_factory=list)
 
     def add_chunk(self, role: str, pcm_data: bytes, offset_seconds: float) -> None:
         pcm_24khz = _pcm16k_to_pcm24k(pcm_data)
         if not pcm_24khz:
             return
 
-        is_speech = self._is_speech(pcm_24khz)
-
         if role == "user":
             _append_timed_audio(self.user_audio, pcm_24khz, offset_seconds)
-            if is_speech:
-                self._append_segment(self.user_segments, role, pcm_24khz, offset_seconds)
         else:
             _append_timed_audio(self.assistant_audio, pcm_24khz, offset_seconds)
-            if is_speech:
-                self._append_segment(self.assistant_segments, role, pcm_24khz, offset_seconds)
 
         _append_timed_audio(self.mixed_audio, pcm_24khz, offset_seconds)
-
-    @staticmethod
-    def _is_speech(pcm_data: bytes) -> bool:
-        """Simple energy-based speech detection on 16-bit PCM audio.
-
-        Returns True if the RMS energy of the audio chunk exceeds
-        SPEECH_ENERGY_THRESHOLD. This filters out silence and low-level
-        noise from continuous media streaming, enabling proper turn
-        boundary detection for latency measurement.
-        """
-        if len(pcm_data) < 2:
-            return False
-        n_samples = len(pcm_data) // 2
-        samples = struct.unpack(f"<{n_samples}h", pcm_data[:n_samples * 2])
-        rms = (sum(s * s for s in samples) / n_samples) ** 0.5
-        return rms > SPEECH_ENERGY_THRESHOLD
-
-    def _append_segment(
-        self,
-        segments: list[AudioSegment],
-        role: str,
-        audio_data: bytes,
-        offset_seconds: float,
-    ) -> None:
-        if not segments or offset_seconds - segments[-1].ended_at > SEGMENT_GAP_SECONDS:
-            segment = AudioSegment(role=role, started_at=offset_seconds, ended_at=offset_seconds)
-            segment.append(audio_data, offset_seconds)
-            segments.append(segment)
-            return
-
-        segments[-1].append(audio_data, offset_seconds)
 
 
 class TelephonyBridgeServer:
@@ -310,6 +246,7 @@ class TelephonyBridgeServer:
         conversation_id: str,
         transport_factory: Callable[[TelephonyBridgeConfig, str], BaseTelephonyTransport] | None = None,
         segment_transcriber: BaseSegmentTranscriber | None = None,
+        observer_factory: Callable[[Path, BaseSegmentTranscriber, AuditLog], BridgeVADObserver] | None = None,
     ):
         self.current_date_time = current_date_time
         self.bridge_config = bridge_config
@@ -330,15 +267,15 @@ class TelephonyBridgeServer:
 
         self._transport_factory = transport_factory or self._default_transport_factory
         self._segment_transcriber = segment_transcriber or create_segment_transcriber(bridge_config)
+        self._observer_factory = observer_factory or (
+            lambda output_dir, transcriber, audit_log: BridgeVADObserver(output_dir, transcriber, audit_log)
+        )
         self._session_state: _SessionState | None = None
-        # Saved before transport cleanup for post-call enrichment
-        self._enrichment_call_control_id: str | None = None
-        self._enrichment_call_leg_id: str | None = None
-        self._enrichment_eva_call_id: str | None = None
+        self._vad_observer: BridgeVADObserver | None = None
         self._session_started_monotonic: float | None = None
+        self._session_end_reason: str | None = None
         self._transport: BaseTelephonyTransport | None = None
         self._tool_webhook_register_callback: Callable[[str], Any] | None = None
-        self._conversation_id_resolver: Callable[[str], str | None] | None = None
 
         self._app = FastAPI()
         self._server: uvicorn.Server | None = None
@@ -436,7 +373,9 @@ class TelephonyBridgeServer:
 
         self._session_state = _SessionState(started_at=datetime.now(UTC))
         self._session_started_monotonic = asyncio.get_event_loop().time()
+        self._session_end_reason = None
         self._transport = self._transport_factory(self.bridge_config, self.conversation_id)
+        self._vad_observer = self._observer_factory(self.output_dir, self._segment_transcriber, self.audit_log)
 
         assistant_audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
 
@@ -445,6 +384,8 @@ class TelephonyBridgeServer:
             assert self._session_state is not None
             offset_seconds = self._elapsed_seconds()
             self._session_state.add_chunk("assistant", audio_data, offset_seconds)
+            if self._vad_observer is not None:
+                await self._vad_observer.feed_assistant_audio(audio_data, self._current_epoch_seconds())
             await assistant_audio_queue.put(audio_data)
 
         self._transport.set_audio_handler(on_transport_audio)
@@ -492,6 +433,7 @@ class TelephonyBridgeServer:
 
                     if transport_done in done:
                         ws_receive.cancel()
+                        self._session_end_reason = "assistant_hangup"
                         logger.info(
                             "Telnyx call ended (assistant hung up) for %s — ending session",
                             self.conversation_id,
@@ -519,8 +461,11 @@ class TelephonyBridgeServer:
                             assert self._session_state is not None
                             offset_seconds = self._elapsed_seconds()
                             self._session_state.add_chunk("user", pcm_audio, offset_seconds)
+                            if self._vad_observer is not None:
+                                await self._vad_observer.feed_user_audio(pcm_audio, self._current_epoch_seconds())
                             await self._transport.send_audio(pcm_audio)
                     elif event == "stop":
+                        self._session_end_reason = payload.get("reason") or self._session_end_reason
                         logger.info(f"Received stop event for {self.conversation_id}")
                         break
                     else:
@@ -548,14 +493,12 @@ class TelephonyBridgeServer:
             except asyncio.CancelledError:
                 pass
 
-            # Save call identifiers before cleaning up the transport — we need
-            # them later for conversation API enrichment in _save_outputs().
             if self._transport is not None:
-                self._enrichment_call_control_id = self._transport.external_call_id
-                self._enrichment_call_leg_id = getattr(self._transport, "call_leg_id", None)
-                self._enrichment_eva_call_id = self._transport.eva_call_id
                 await self._transport.stop()
                 self._transport = None
+
+            if self._vad_observer is not None:
+                await self._vad_observer.finalize(reason=self._infer_session_end_reason())
 
             logger.info(f"Telephony bridge client finished for {self.conversation_id}")
 
@@ -564,41 +507,22 @@ class TelephonyBridgeServer:
             return 0.0
         return max(0.0, asyncio.get_event_loop().time() - self._session_started_monotonic)
 
-    async def _generate_transcript(self) -> list[dict[str, str]]:
-        """Generate transcript.jsonl entries from recorded user and assistant segments."""
-        if self._session_state is None:
-            return []
+    @staticmethod
+    def _current_epoch_seconds() -> float:
+        return time.time()
 
-        transcript_entries: list[dict[str, str]] = []
-        all_segments = sorted(
-            [*self._session_state.user_segments, *self._session_state.assistant_segments],
-            key=lambda segment: segment.started_at,
-        )
+    def _infer_session_end_reason(self) -> str | None:
+        if self._session_end_reason:
+            return self._session_end_reason
 
-        session_started_at = self._session_state.started_at
-
-        for segment in all_segments:
-            text = await self._segment_transcriber.transcribe(bytes(segment.audio), OUTPUT_SAMPLE_RATE)
-            if not text:
+        for entry in reversed(self.audit_log.transcript):
+            if entry.get("message_type") not in {"tool_call", "tool_response"}:
                 continue
+            value = entry.get("value", {})
+            if isinstance(value, dict) and value.get("tool") == "end_call":
+                return "goodbye"
 
-            timestamp_dt = session_started_at + timedelta(seconds=segment.started_at)
-            timestamp_ms = str(int(timestamp_dt.timestamp() * 1000))
-
-            if segment.role == "user":
-                self.audit_log.append_user_input(text, timestamp_ms=timestamp_ms)
-            else:
-                self.audit_log.append_assistant_output(text, timestamp_ms=timestamp_ms)
-
-            transcript_entries.append(
-                {
-                    "timestamp": timestamp_dt.isoformat(),
-                    "role": segment.role,
-                    "content": text,
-                }
-            )
-
-        return transcript_entries
+        return None
 
     async def _save_outputs(self) -> None:
         """Persist bridge outputs in the same shape as AssistantServer."""
@@ -611,16 +535,11 @@ class TelephonyBridgeServer:
             len(self._session_state.assistant_audio) if self._session_state else 0,
         )
 
-        transcript_entries = await self._generate_transcript()
+        transcript_entries = self._vad_observer.get_transcript_entries() if self._vad_observer is not None else []
         transcript_path = self.output_dir / "transcript.jsonl"
         with open(transcript_path, "w", encoding="utf-8") as transcript_file:
             for entry in transcript_entries:
                 transcript_file.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-        # Enrich audit log with conversation messages from Telnyx API
-        # before saving, so the audit log has user/assistant speech events
-        # that the metrics processor needs for turn extraction.
-        await self._enrich_audit_log_from_api()
 
         audit_path = self.output_dir / "audit_log.json"
         self.audit_log.save(audit_path)
@@ -635,321 +554,27 @@ class TelephonyBridgeServer:
         with open(final_db_path, "w", encoding="utf-8") as final_db_file:
             json.dump(self.get_final_scenario_db(), final_db_file, indent=2, sort_keys=True, default=str)
 
-        # Write an empty pipecat_logs.jsonl — no local TTS pipeline exists for telephony
-        # bridge calls.  The metrics processor will fall back to audit_log assistant entries
-        # (Conversations API text) as the authoritative source for intended_assistant_turns.
-        # Previously this file was populated from ElevenLabs assistant_speech transcriptions,
-        # but those are STT output (what ElevenLabs *heard*) and can garble alphanumeric
-        # strings, numbers, and formatting — producing incorrect "intended" text.
         pipecat_logs_path = self.output_dir / "pipecat_logs.jsonl"
-        pipecat_logs_path.write_text("")
+        if not pipecat_logs_path.exists():
+            pipecat_logs_path.write_text("", encoding="utf-8")
 
-        # Generate response_latencies.json from client-side audio segment timing.
-        # Mirrors Pipecat's UserStoppedSpeaking → BotStartedSpeaking measurement.
-        self._generate_response_latencies()
+        response_latencies_path = self.output_dir / "response_latencies.json"
+        if not response_latencies_path.exists():
+            with open(response_latencies_path, "w", encoding="utf-8") as file_obj:
+                json.dump(
+                    {
+                        "latencies": [],
+                        "mean": 0,
+                        "max": 0,
+                        "min": 0,
+                        "count": 0,
+                        "source": "vad_observer",
+                    },
+                    file_obj,
+                    indent=2,
+                )
 
         logger.info(f"Telephony bridge outputs saved to {self.output_dir}")
-
-    async def _enrich_audit_log_from_api(self) -> None:
-        """Fetch conversation messages from Telnyx Conversations API and rebuild audit log.
-
-        The Telnyx AI assistant records full user/assistant message history. We fetch it
-        and rebuild the audit log transcript so that EVA's metrics processor can extract
-        proper conversation turns. The local audit log only has tool call events, which
-        isn't enough for LLM judge metrics.
-
-        Lookup strategy (in priority order):
-        1. Dynamic variables webhook mapping: eva_call_id → conversation_id (fastest, no API call)
-        2. Call Events API fallback: query conversation_created event on the A-leg
-        """
-        logger.info("Starting post-call enrichment from Conversations API...")
-
-        api_key = self.bridge_config.telnyx_api_key
-        if not api_key:
-            logger.warning("No telnyx_api_key configured — skipping enrichment")
-            return
-
-        base_url = "https://api.telnyx.com/v2/ai/conversations"
-        headers = {"Authorization": f"Bearer {api_key}"}
-
-        # Wait for the Conversations API to fully index the call's messages.
-        # Voice calls need more time than chat — transcription + message storage.
-        await asyncio.sleep(5)
-
-        # Try to resolve conversation_id from the DV webhook mapping first
-        # (instant, no API call needed — the DV webhook stored it during the call).
-        conv_id: str | None = None
-        eva_call_id = getattr(self, "_enrichment_eva_call_id", None)
-        if eva_call_id and self._conversation_id_resolver:
-            conv_id = self._conversation_id_resolver(eva_call_id)
-            if conv_id:
-                logger.info(
-                    "Resolved conversation_id=%s from DV webhook mapping (eva_call_id=%s)",
-                    conv_id, eva_call_id,
-                )
-
-        # Fallback: query Call Events API
-        if not conv_id:
-            call_control_id = getattr(self, "_enrichment_call_control_id", None)
-            if not call_control_id:
-                logger.warning("No call_control_id or eva_call_id available — cannot enrich")
-                return
-
-            logger.info("DV mapping miss — falling back to Call Events API lookup")
-
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                if not conv_id:
-                    conv_id = await self._find_conversation_id_from_events(
-                        client, call_control_id, headers
-                    )
-
-                if not conv_id:
-                    logger.warning(
-                        "Could not find conversation_id via DV mapping or Call Events API "
-                        "(eva_call_id=%s, call_control_id=%s)",
-                        eva_call_id, call_control_id,
-                    )
-                    return
-
-                # Fetch messages
-                msg_resp = await client.get(
-                    f"{base_url}/{conv_id}/messages",
-                    params={"page[size]": 100},
-                    headers=headers,
-                )
-                msg_resp.raise_for_status()
-                messages = [m for m in msg_resp.json().get("data", []) if m is not None]
-                messages.reverse()  # API returns reverse chronological
-
-                if not messages:
-                    logger.warning("No messages found for conversation %s", conv_id)
-                    return
-
-                # Rebuild the audit log transcript from API messages
-                transcript = self._messages_to_audit_transcript(messages)
-                self.audit_log.replace_transcript(transcript)
-                logger.info(
-                    "Enriched audit log from conversations API: %d messages → %d transcript events",
-                    len(messages),
-                    len(transcript),
-                )
-
-        except Exception as e:
-            logger.warning("Failed to fetch conversation messages: %s", e)
-
-    @staticmethod
-    async def _find_conversation_id_from_events(
-        client: httpx.AsyncClient,
-        call_control_id: str,
-        headers: dict[str, str],
-    ) -> str | None:
-        """Find the conversation_id by querying the Call Events API.
-
-        The ``conversation_created`` event on the A-leg call contains the
-        ``conversation_id`` that maps to the Conversations messages API.
-        """
-        from urllib.parse import quote
-
-        try:
-            resp = await client.get(
-                "https://api.telnyx.com/v2/call_events",
-                params={
-                    "filter[call_control_id]": call_control_id,
-                    "page[size]": 50,
-                },
-                headers=headers,
-            )
-            resp.raise_for_status()
-            events = resp.json().get("data", [])
-
-            for event in events:
-                if event.get("name") != "conversation_created":
-                    continue
-                payload = event.get("payload", {})
-                if isinstance(payload, dict):
-                    inner = payload.get("payload", payload)
-                    if isinstance(inner, dict):
-                        conv_id = inner.get("conversation_id")
-                        if conv_id:
-                            logger.info(
-                                "Found conversation_id=%s from call events for cc_id=%s",
-                                conv_id,
-                                call_control_id[:40],
-                            )
-                            return conv_id
-
-            logger.warning(
-                "No conversation_created event found for call_control_id=%s (checked %d events)",
-                call_control_id[:40],
-                len(events),
-            )
-        except Exception as e:
-            logger.warning("Failed to query call events: %s", e)
-
-        return None
-
-    @staticmethod
-    def _uuid_v1_time_diff_seconds(uuid_a: str, uuid_b: str) -> float:
-        """Return the absolute time difference in seconds between two UUID v1 values.
-
-        UUID v1 encodes a 60-bit timestamp (100ns intervals since 1582-10-15)
-        split across time_low, time_mid, and time_hi_and_version fields.
-        """
-        def _ts(u: str) -> int:
-            parts = u.split("-")
-            time_low = int(parts[0], 16)
-            time_mid = int(parts[1], 16)
-            time_hi = int(parts[2], 16) & 0x0FFF  # mask version nibble
-            return (time_hi << 48) | (time_mid << 32) | time_low
-
-        return abs(_ts(uuid_a) - _ts(uuid_b)) / 10_000_000
-
-    @staticmethod
-    def _messages_to_audit_transcript(messages: list[dict]) -> list[dict]:
-        """Convert Telnyx Conversations API messages to audit log transcript format."""
-        transcript = []
-        for i, msg in enumerate(messages):
-            role = msg.get("role", "unknown")
-            text = msg.get("text", "")
-            tool_calls = msg.get("tool_calls") or []
-            tool_call_id = msg.get("tool_call_id")
-            sent_at = msg.get("sent_at", msg.get("created_at", ""))
-
-            ts = 0
-            if sent_at:
-                try:
-                    dt = datetime.fromisoformat(sent_at.replace("Z", "+00:00"))
-                    ts = int(dt.timestamp() * 1000)
-                except (ValueError, TypeError):
-                    ts = i
-
-            if role == "user" and text:
-                transcript.append(
-                    {
-                        "timestamp": ts,
-                        "message_type": "user",
-                        "type": "user",
-                        "displayName": "User",
-                        "content": text,
-                        "value": text,
-                    }
-                )
-            elif role == "assistant":
-                if text:
-                    transcript.append(
-                        {
-                            "timestamp": ts,
-                            "message_type": "assistant",
-                            "type": "assistant",
-                            "displayName": "Assistant",
-                            "content": text,
-                            "value": text,
-                        }
-                    )
-                for tc in tool_calls:
-                    fn = tc.get("function", {})
-                    try:
-                        args = json.loads(fn.get("arguments", "{}"))
-                    except (json.JSONDecodeError, TypeError):
-                        args = {}
-                    transcript.append(
-                        {
-                            "timestamp": ts,
-                            "message_type": "tool_call",
-                            "type": "tool_call",
-                            "displayName": "Tool",
-                            "value": {
-                                "tool": fn.get("name", ""),
-                                "parameters": args,
-                                "tool_call_id": tc.get("id", ""),
-                            },
-                        }
-                    )
-            elif role == "tool":
-                tool_name = ""
-                if tool_call_id:
-                    for prev in reversed(transcript):
-                        if (
-                            prev.get("message_type") == "tool_call"
-                            and prev.get("value", {}).get("tool_call_id") == tool_call_id
-                        ):
-                            tool_name = prev["value"]["tool"]
-                            break
-                transcript.append(
-                    {
-                        "timestamp": ts,
-                        "message_type": "tool_response",
-                        "type": "tool_response",
-                        "displayName": "Tool Response",
-                        "value": {
-                            "tool": tool_name,
-                            "response": text,
-                            "tool_call_id": tool_call_id or "",
-                        },
-                    }
-                )
-
-        return transcript
-
-    def _generate_response_latencies(self) -> None:
-        """Generate response_latencies.json from client-side audio segment timing.
-
-        Measures the gap between the end of each user speech segment and the start
-        of the next assistant speech segment. This mirrors how Pipecat's
-        ``UserBotLatencyObserver`` measures ``UserStoppedSpeaking → BotStartedSpeaking``
-        and gives an apples-to-apples comparison with Pipecat-based benchmarks.
-
-        Unlike server-side ``end_user_perceived_latency_ms`` from the Conversations API,
-        this includes the full round-trip: network latency between the bridge and
-        Telnyx, plus any media streaming overhead.
-        """
-        latencies_path = self.output_dir / "response_latencies.json"
-        latencies: list[float] = []
-
-        if self._session_state is not None:
-            user_segs = self._session_state.user_segments
-            asst_segs = self._session_state.assistant_segments
-
-            # Build an interleaved timeline of (start_time, role, segment) to pair turns correctly.
-            # A conversational turn = user speaks → assistant responds.  If the assistant speaks
-            # multiple times without the user responding in between (e.g. a farewell + a second
-            # goodbye triggered by a silence timeout), only the first assistant response counts
-            # as the turn's latency measurement.
-            timeline = []
-            for seg in user_segs:
-                timeline.append((seg.started_at, "user", seg))
-            for seg in asst_segs:
-                timeline.append((seg.started_at, "assistant", seg))
-            timeline.sort(key=lambda x: x[0])
-
-            last_user_end: float | None = None
-            for _ts, role, seg in timeline:
-                if role == "user":
-                    last_user_end = seg.ended_at
-                elif role == "assistant" and last_user_end is not None:
-                    gap = seg.started_at - last_user_end
-                    if gap > 0:
-                        latencies.append(round(gap, 4))
-                    # Consume — don't pair additional assistant segments with the same user turn
-                    last_user_end = None
-
-        latencies_data = {
-            "latencies": latencies,
-            "mean": round(sum(latencies) / len(latencies), 4) if latencies else 0,
-            "max": round(max(latencies), 4) if latencies else 0,
-            "min": round(min(latencies), 4) if latencies else 0,
-            "count": len(latencies),
-            "source": "client_audio_segments",
-        }
-        with open(latencies_path, "w") as f:
-            json.dump(latencies_data, f, indent=2)
-
-        logger.info(
-            "Generated client-side response latencies: %d measurements, mean=%.3fs",
-            len(latencies),
-            latencies_data["mean"],
-        )
 
     def _save_audio(self) -> None:
         if self._session_state is None:

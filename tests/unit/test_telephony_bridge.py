@@ -4,19 +4,49 @@ import base64
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
 from fastapi import WebSocketDisconnect
 
-from eva.assistant.telephony_bridge import (
-    AudioSegment,
-    BaseTelephonyTransport,
-    TelephonyBridgeServer,
-    TelephonyBridgeConfig,
-    _SessionState,
-)
+from eva.assistant.telephony_bridge import BaseTelephonyTransport, TelephonyBridgeConfig, TelephonyBridgeServer, _SessionState
+
+
+class _FakeObserver:
+    def __init__(self, output_dir: Path):
+        self.output_dir = output_dir
+        self.user_chunks: list[tuple[bytes, float]] = []
+        self.assistant_chunks: list[tuple[bytes, float]] = []
+        self.finalize_reasons: list[str | None] = []
+        self.transcript_entries: list[dict[str, str]] = []
+
+    async def feed_user_audio(self, pcm_bytes: bytes, timestamp: float) -> None:
+        self.user_chunks.append((pcm_bytes, timestamp))
+
+    async def feed_assistant_audio(self, pcm_bytes: bytes, timestamp: float) -> None:
+        self.assistant_chunks.append((pcm_bytes, timestamp))
+
+    async def finalize(self, *, reason: str | None = None, details: dict | None = None) -> None:
+        self.finalize_reasons.append(reason)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        (self.output_dir / "pipecat_logs.jsonl").write_text("", encoding="utf-8")
+        with open(self.output_dir / "response_latencies.json", "w", encoding="utf-8") as file_obj:
+            json.dump(
+                {
+                    "latencies": [0.9],
+                    "mean": 0.9,
+                    "max": 0.9,
+                    "min": 0.9,
+                    "count": 1,
+                    "source": "vad_observer",
+                },
+                file_obj,
+                indent=2,
+            )
+
+    def get_transcript_entries(self) -> list[dict[str, str]]:
+        return list(self.transcript_entries)
 
 
 class _FakeWebSocket:
@@ -80,8 +110,8 @@ def _make_bridge(
     tmp_path: Path,
     *,
     transport: _MockTransport | None = None,
-    transcriber: object | None = None,
-) -> tuple[TelephonyBridgeServer, _MockTransport]:
+    observer: _FakeObserver | None = None,
+) -> tuple[TelephonyBridgeServer, _MockTransport, _FakeObserver]:
     agent_config_path = tmp_path / "agent.yaml"
     scenario_db_path = tmp_path / "scenario.json"
     _write_agent_config(agent_config_path)
@@ -92,6 +122,7 @@ def _make_bridge(
         conversation_id="conv-1",
         webhook_base_url="https://example.com",
     )
+    observer_instance = observer or _FakeObserver(tmp_path / "output")
 
     bridge = TelephonyBridgeServer(
         current_date_time="2026-01-01 00:00 UTC",
@@ -111,17 +142,15 @@ def _make_bridge(
         port=9999,
         conversation_id="conv-1",
         transport_factory=lambda config, conversation_id: transport_instance,
-        segment_transcriber=transcriber,
+        observer_factory=lambda output_dir, transcriber, audit_log: observer_instance,
     )
-    return bridge, transport_instance
+    return bridge, transport_instance, observer_instance
 
 
 class TestTelephonyBridgeServer:
     @pytest.mark.asyncio
-    async def test_handles_websocket_audio_bridge(self, tmp_path: Path):
-        transcriber = MagicMock()
-        transcriber.transcribe = AsyncMock(return_value="")
-        bridge, transport = _make_bridge(tmp_path, transcriber=transcriber)
+    async def test_handles_websocket_audio_bridge_and_finalizes_observer(self, tmp_path: Path):
+        bridge, transport, observer = _make_bridge(tmp_path)
 
         user_audio = b"\xff" * 160
         websocket = _FakeWebSocket(
@@ -133,7 +162,7 @@ class TestTelephonyBridgeServer:
                     "conversation_id": "conv-1",
                     "media": {"payload": base64.b64encode(user_audio).decode("utf-8")},
                 },
-                {"event": "stop", "conversation_id": "conv-1"},
+                {"event": "stop", "conversation_id": "conv-1", "reason": "goodbye"},
             ]
         )
 
@@ -147,23 +176,28 @@ class TestTelephonyBridgeServer:
         assert bridge._session_state is not None
         assert bridge._session_state.user_audio
         assert bridge._session_state.assistant_audio
+        assert observer.user_chunks and observer.user_chunks[0][0] == user_audio
+        assert observer.assistant_chunks
+        assert observer.finalize_reasons == ["goodbye"]
 
     @pytest.mark.asyncio
     async def test_save_outputs_writes_transcript_audit_audio_and_db_snapshots(self, tmp_path: Path):
-        transcriber = MagicMock()
-        transcriber.transcribe = AsyncMock(side_effect=["I need help", "Sure, let me check"])
-        bridge, _transport = _make_bridge(tmp_path, transcriber=transcriber)
+        bridge, _transport, observer = _make_bridge(tmp_path)
 
         bridge._session_state = _SessionState(started_at=datetime(2026, 1, 1, tzinfo=UTC))
-        bridge._session_state.user_segments.append(
-            AudioSegment(role="user", started_at=0.0, ended_at=0.1, audio=bytearray(b"\x00\x00" * 2400))
-        )
-        bridge._session_state.assistant_segments.append(
-            AudioSegment(role="assistant", started_at=1.0, ended_at=1.1, audio=bytearray(b"\x01\x01" * 2400))
-        )
         bridge._session_state.user_audio.extend(b"\x00\x00" * 2400)
         bridge._session_state.assistant_audio.extend(b"\x01\x01" * 2400)
         bridge._session_state.mixed_audio.extend(b"\x01\x00" * 2400)
+
+        observer.transcript_entries = [
+            {"timestamp": "2026-01-01T00:00:00+00:00", "role": "user", "content": "I need help"},
+            {"timestamp": "2026-01-01T00:00:01+00:00", "role": "assistant", "content": "Sure, let me check"},
+        ]
+        bridge._vad_observer = observer
+        await observer.finalize(reason="goodbye")
+
+        bridge.audit_log.append_user_input("I need help", timestamp_ms="1767225600000")
+        bridge.audit_log.append_assistant_output("Sure, let me check", timestamp_ms="1767225601000")
 
         await bridge._save_outputs()
 
@@ -189,14 +223,15 @@ class TestTelephonyBridgeServer:
         assert initial_db["reservations"]["ABC123"]["status"] == "confirmed"
         assert final_db["reservations"]["ABC123"]["status"] == "confirmed"
 
-        # Client-side latency: user ended at 0.1s, assistant started at 1.0s → 0.9s
         latencies = json.loads((bridge.output_dir / "response_latencies.json").read_text())
         assert latencies["count"] == 1
         assert latencies["latencies"] == [0.9]
-        assert latencies["source"] == "client_audio_segments"
+        assert latencies["source"] == "vad_observer"
+
+        assert (bridge.output_dir / "pipecat_logs.jsonl").read_text() == ""
 
     def test_default_transport_factory_creates_call_control_transport(self, tmp_path: Path, monkeypatch):
-        bridge, _transport = _make_bridge(tmp_path)
+        bridge, _transport, _observer = _make_bridge(tmp_path)
         bridge.bridge_config = TelephonyBridgeConfig(
             sip_uri="sip:test@example.com",
             telnyx_api_key="telnyx-key",

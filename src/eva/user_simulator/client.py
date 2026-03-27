@@ -44,6 +44,7 @@ class UserSimulator:
         timeout: int = 600,
         user_simulator_context: str = "",
         audio_codec: str = "mulaw",
+        events_output_path: Path | None = None,
     ):
         """Initialize the user simulator.
 
@@ -56,6 +57,7 @@ class UserSimulator:
             timeout: Conversation timeout in seconds
             user_simulator_context: Domain-specific context line from agent config
             audio_codec: Audio codec for assistant connection ("mulaw" or "pcm")
+            events_output_path: Optional path for the simulator's own event log
         """
         self.persona_config = persona_config
         self.goal = goal
@@ -73,7 +75,7 @@ class UserSimulator:
         self._conversation_done = asyncio.Event()
 
         # Event logger
-        self.event_logger = ElevenLabsEventLogger(self.output_dir / "elevenlabs_events.jsonl")
+        self.event_logger = ElevenLabsEventLogger(events_output_path or (self.output_dir / "elevenlabs_events.jsonl"))
 
         # Audio recording buffers
         self._user_audio_chunks: list[bytes] = []

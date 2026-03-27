@@ -289,7 +289,6 @@ class ConversationWorker:
                 webhook_service.set_record_id(eva_call_id, record_id)
 
             bridge._tool_webhook_register_callback = _register_eva_call_id
-            bridge._conversation_id_resolver = webhook_service.get_telnyx_conversation_id
 
         await self._assistant_server.start()
 
@@ -312,6 +311,9 @@ class ConversationWorker:
             output_dir=self.output_dir,
             user_simulator_context=self.agent.user_simulator_context,
             audio_codec="pcm" if is_telephony else "mulaw",
+            events_output_path=(
+                self.output_dir / "elevenlabs_user_simulator_events.jsonl" if is_telephony else None
+            ),
         )
 
     async def _run_conversation(self) -> str:

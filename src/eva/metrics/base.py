@@ -86,7 +86,6 @@ class MetricContext:
         assistant_interrupted_turns: set[int] | None = None,
         user_interrupted_turns: set[int] | None = None,
         is_audio_native: bool = False,
-        is_continuous_assistant_stream: bool = False,
     ):
         self.record_id = record_id
 
@@ -138,7 +137,6 @@ class MetricContext:
         self.assistant_interrupted_turns = assistant_interrupted_turns or set()
         self.user_interrupted_turns = user_interrupted_turns or set()
         self.is_audio_native = is_audio_native
-        self.is_continuous_assistant_stream = is_continuous_assistant_stream
 
     def to_dict(self) -> dict[str, Any]:
         """Convert MetricContext to a serializable dictionary."""

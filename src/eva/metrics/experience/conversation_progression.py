@@ -23,12 +23,6 @@ class ConversationProgressionJudgeMetric(ConversationTextJudgeMetric):
     category = "experience"
     rating_scale = (1, 3)
 
-    def get_transcript_trace(self, context: MetricContext) -> list[dict]:
-        """Use message-native traces for continuous-stream Telnyx conversations."""
-        if context.is_continuous_assistant_stream and context.message_trace:
-            return context.message_trace
-        return super().get_transcript_trace(context)
-
     def get_prompt_variables(self, context: MetricContext, transcript_text: str) -> dict[str, Any]:
         """Return variables for prompt formatting."""
         return {"conversation_trace": transcript_text}

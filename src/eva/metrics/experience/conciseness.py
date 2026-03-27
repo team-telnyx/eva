@@ -23,12 +23,6 @@ class ConcisenessJudgeMetric(PerTurnConversationJudgeMetric):
     category = "experience"
     rating_scale = (1, 3)
 
-    def get_transcript_trace(self, context: MetricContext) -> list[dict]:
-        """Use message-native traces for continuous-stream Telnyx conversations."""
-        if context.is_continuous_assistant_stream and context.message_trace:
-            return context.message_trace
-        return super().get_transcript_trace(context)
-
     def get_expected_turn_ids(self, context: MetricContext) -> list[int]:
         """Return unique turn IDs from conversation trace, preserving order."""
         trace = self.get_transcript_trace(context)
