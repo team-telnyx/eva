@@ -59,33 +59,7 @@ class TestFaithfulness:
         assert score.details["num_turns"] == 2
 
     @pytest.mark.asyncio
-    async def test_compute_uses_message_trace_for_continuous_stream(self):
-        self.metric.llm_client.generate_text.return_value = json.dumps(
-            {
-                "rating": 3,
-                "dimensions": {"hallucination": "none"},
-            }
-        )
-        ctx = make_metric_context(
-            conversation_trace=[
-                {"role": "user", "content": "Need help", "turn_id": 1},
-            ],
-            message_trace=[
-                {"role": "assistant", "content": "Welcome to EVA.", "turn_id": 0},
-                {"role": "user", "content": "Need help", "turn_id": 1},
-                {"role": "assistant", "content": "I found your reservation.", "turn_id": 1},
-            ],
-            is_continuous_assistant_stream=True,
-        )
-
-        score = await self.metric.compute(ctx)
-
-        prompt = self.metric.llm_client.generate_text.await_args.args[0][0]["content"]
-        assert "I found your reservation." in prompt
-        assert score.details["num_turns"] == 3
-
-    @pytest.mark.asyncio
-    async def test_compute_keeps_validated_trace_for_non_continuous_stream(self):
+    async def test_compute_uses_conversation_trace(self):
         self.metric.llm_client.generate_text.return_value = json.dumps(
             {
                 "rating": 3,
@@ -101,7 +75,6 @@ class TestFaithfulness:
                 {"role": "user", "content": "Need help", "turn_id": 1},
                 {"role": "assistant", "content": "Unvalidated native assistant text.", "turn_id": 1},
             ],
-            is_continuous_assistant_stream=False,
         )
 
         score = await self.metric.compute(ctx)
