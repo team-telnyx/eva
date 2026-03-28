@@ -56,6 +56,7 @@ class BenchmarkRunner:
         self._results: list[ConversationResult] = []
         self._failed_record_ids: list[str] = []
         self.tool_webhook_service: ToolWebhookService | None = None
+        self._original_model: str | None = None
 
     def _load_agent_config(self) -> AgentConfig:
         """Load single agent configuration."""
@@ -97,8 +98,39 @@ class BenchmarkRunner:
             self.tool_webhook_service = ToolWebhookService(port=self.config.model.webhook_port)
             await self.tool_webhook_service.start()
 
+            # PATCH assistant model if --model is set
+            bridge_config = self.config.model
+            if bridge_config.telnyx_llm and bridge_config.telnyx_assistant_id:
+                from eva.assistant.telnyx_setup import TelnyxAssistantManager
+
+                manager = TelnyxAssistantManager(api_key=bridge_config.telnyx_api_key)
+                try:
+                    self._original_model = await manager.get_assistant_model(bridge_config.telnyx_assistant_id)
+                    await manager.update_assistant_model(bridge_config.telnyx_assistant_id, bridge_config.telnyx_llm)
+                finally:
+                    await manager.close()
+
+                # Tag all conversations with the model
+                self.tool_webhook_service.set_model_tag(bridge_config.telnyx_llm)
+
     async def _stop_support_services(self) -> None:
         """Stop optional runner-scoped services."""
+        # Restore original assistant model if we changed it
+        if isinstance(self.config.model, TelephonyBridgeConfig):
+            bridge_config = self.config.model
+            original_model = getattr(self, "_original_model", None)
+            if original_model and bridge_config.telnyx_assistant_id:
+                from eva.assistant.telnyx_setup import TelnyxAssistantManager
+
+                manager = TelnyxAssistantManager(api_key=bridge_config.telnyx_api_key)
+                try:
+                    await manager.update_assistant_model(bridge_config.telnyx_assistant_id, original_model)
+                    logger.info(f"Restored assistant model to {original_model}")
+                except Exception:
+                    logger.warning(f"Failed to restore assistant model to {original_model}", exc_info=True)
+                finally:
+                    await manager.close()
+
         if self.tool_webhook_service is not None:
             await self.tool_webhook_service.stop()
             self.tool_webhook_service = None

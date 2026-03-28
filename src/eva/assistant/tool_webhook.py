@@ -36,6 +36,7 @@ class ToolWebhookService:
         self._conversations: dict[str, _ConversationRegistration] = {}
         self._conversation_map: dict[str, str] = {}  # eva_call_id → telnyx_conversation_id
         self._record_ids: dict[str, str] = {}  # eva_call_id → eva_record_id
+        self._model_tag: str | None = None  # LLM model tag for DV metadata
 
         self._app = FastAPI()
         self._server: uvicorn.Server | None = None
@@ -154,6 +155,10 @@ class ToolWebhookService:
         """Associate an EVA record_id with an eva_call_id for conversation tagging."""
         self._record_ids[eva_call_id] = record_id
 
+    def set_model_tag(self, model: str) -> None:
+        """Set the LLM model tag to stamp on all conversation metadata."""
+        self._model_tag = model
+
     async def get_audit_log(self, call_id: str) -> AuditLog | None:
         """Return the audit log for a registered conversation."""
         async with self._lock:
@@ -210,6 +215,8 @@ class ToolWebhookService:
                 record_id = self._record_ids.get(eva_call_id)
                 if record_id:
                     metadata["eva_record_id"] = record_id
+                if self._model_tag:
+                    metadata["eva_llm_model"] = self._model_tag
                 response["conversation"] = {"metadata": metadata}
             return response
 

@@ -86,6 +86,34 @@ class TelnyxAssistantManager:
 
         logger.info(f"Deleted Telnyx benchmark assistant {assistant_id}")
 
+    async def get_assistant_model(self, assistant_id: str) -> str:
+        """Get the current LLM model for a Telnyx assistant."""
+        url = f"{self.api_base}/v2/ai/assistants/{assistant_id}"
+        async with self.session.get(url) as response:
+            payload = await self._parse_response_json(response)
+            if response.status >= 400:
+                raise RuntimeError(
+                    f"Failed to get Telnyx assistant {assistant_id}: "
+                    f"{response.status} {json.dumps(payload, sort_keys=True)}",
+                )
+            # API may return model at top level or under "data"
+            model = payload.get("model") or payload.get("data", {}).get("model", "")
+            logger.info(f"Current model for assistant {assistant_id}: {model}")
+            return model
+
+    async def update_assistant_model(self, assistant_id: str, model: str) -> None:
+        """PATCH the LLM model on an existing Telnyx assistant."""
+        url = f"{self.api_base}/v2/ai/assistants/{assistant_id}"
+        logger.info(f"Updating assistant {assistant_id} model to {model}")
+        async with self.session.patch(url, json={"model": model}) as response:
+            payload = await self._parse_response_json(response)
+            if response.status >= 400:
+                raise RuntimeError(
+                    f"Failed to update assistant model: "
+                    f"{response.status} {json.dumps(payload, sort_keys=True)}",
+                )
+        logger.info(f"Updated assistant {assistant_id} model to {model}")
+
     async def close(self) -> None:
         """Close the underlying HTTP session if owned by the manager."""
         if self._session_owner and not self.session.closed:
