@@ -246,6 +246,58 @@ async def test_response_latency_from_coalesced_turns(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_latency_when_assistant_responds_during_user_merge_gap(tmp_path: Path):
+    """When the assistant starts speaking before the user's merge gap expires,
+    latency should be computed from user silence start → assistant turn start,
+    NOT deferred to the next assistant turn (which could be much later)."""
+    output_dir = tmp_path / "output"
+    clock = _FakeClock(6000.0)
+
+    gap_chunks = int(TURN_MERGE_GAP_SECONDS / 0.2) + 2
+
+    # User speaks then goes silent
+    user_states = (
+        [VADState.STARTING, VADState.SPEAKING, VADState.SPEAKING, VADState.STOPPING]
+        + [VADState.QUIET] * (gap_chunks + 5)  # Enough for merge gap to expire
+    )
+    # Assistant starts speaking 0.5s after user goes silent (within user's merge gap)
+    # then stays speaking for a while, then silence
+    asst_states = (
+        [VADState.QUIET] * 5  # Silent while user speaks
+        + [VADState.STARTING, VADState.SPEAKING, VADState.SPEAKING, VADState.STOPPING]
+        + [VADState.QUIET] * gap_chunks
+        + [VADState.STARTING, VADState.SPEAKING, VADState.STOPPING]  # Second assistant turn (much later)
+        + [VADState.QUIET] * gap_chunks
+    )
+
+    observer = BridgeVADObserver(
+        output_dir,
+        _FakeTranscriber(["", "", ""]),
+        AuditLog(),
+        vad_factory=_make_vad_factory(user_states, asst_states),
+        time_provider=clock,
+    )
+
+    # User speaks 6001.0 - 6001.6, silence starts at 6001.6 (STOPPING)
+    for i in range(len(user_states)):
+        await observer.feed_user_audio(b"\x01\x02" * 10, 6001.0 + i * 0.2)
+
+    # Assistant: 5 quiet chunks, then speaks starting at 6001.0 + 5*0.2 = 6002.0
+    # User silence started at 6001.6, assistant starts at 6002.0 → real latency = 0.4s
+    # But user turn won't close until 6001.6 + 2.0 = 6003.6
+    for i in range(len(asst_states)):
+        await observer.feed_assistant_audio(b"\x03\x04" * 10, 6001.0 + i * 0.2)
+
+    clock.now = 6100.0
+    await observer.finalize()
+
+    latencies = json.loads((output_dir / "response_latencies.json").read_text())
+    # Should capture the correct ~0.4s latency, NOT a multi-second inflated value
+    assert latencies["count"] >= 1
+    assert latencies["latencies"][0] == pytest.approx(0.4, abs=0.1)
+
+
+@pytest.mark.asyncio
 async def test_finalize_closes_open_turn_and_transcribes(tmp_path: Path):
     output_dir = tmp_path / "output"
     clock = _FakeClock(5000.0)

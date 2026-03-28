@@ -314,7 +314,17 @@ class BridgeVADObserver:
         await self._log_audio_boundary("audio_end", stream.role, end_timestamp)
 
         if stream.role == USER_EVENT_ROLE:
-            self._pending_user_speech_end = end_timestamp
+            # Check if the assistant already started speaking while we were in the
+            # merge gap. If so, compute latency immediately instead of deferring to
+            # the next assistant turn open (which could be much later → inflated latency).
+            asst = self._assistant_stream
+            if asst.turn_open and asst.turn_started_at is not None and asst.turn_started_at > end_timestamp:
+                latency = round(asst.turn_started_at - end_timestamp, 4)
+                if latency > 0:
+                    self._response_latencies.append(latency)
+                # Don't set _pending — we already recorded this pair.
+            else:
+                self._pending_user_speech_end = end_timestamp
 
         # Only transcribe segments with enough actual speech content.
         if turn_started_at is not None and segment_audio:

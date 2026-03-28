@@ -515,6 +515,7 @@ class TelephonyBridgeServer:
         if self._session_end_reason:
             return self._session_end_reason
 
+        # Check for end_call tool invocation.
         for entry in reversed(self.audit_log.transcript):
             if entry.get("message_type") not in {"tool_call", "tool_response"}:
                 continue

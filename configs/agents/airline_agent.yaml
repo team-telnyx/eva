@@ -429,6 +429,12 @@ tools:
     type: string
     description: Type of refund (full_fare, partial_fare, taxes_only, ancillary_fees)
 
+- id: end_call
+  name: end_call
+  description: End the phone call. Call this tool when the user says goodbye, indicates they have no more questions, or asks to end the call. Do not continue the conversation after calling this tool.
+  tool_type: system
+  domain: flight
+
 - id: transfer_to_agent
   name: transfer_to_agent
   description: Transfer the call to a live human agent when requested by passenger.
