@@ -1057,5 +1057,72 @@
       "assistant_interrupted_turns": [],
       "user_interrupted_turns": [1, 2]
     }
+  },
+  {
+    "id": "bridge_multi_turn_with_tool_calls",
+    "description": "Telephony bridge: 3-turn conversation with tool calls. Bridge VAD produces audio events with source=pipecat_assistant. Audit-log user entries arrive during user audio sessions (same timestamp as audio_start). User_speech from Deepgram arrives AFTER audio_end. Tests that (1) audit_log/user prevents empty-session rollback, (2) turn counter advances correctly, (3) bridge assistant trace entries are preserved without truncation.",
+    "history": [
+      {"timestamp_ms": 1000, "source": "elevenlabs", "event_type": "connection_state", "data": {"data": {"state": "connected"}}},
+      {"timestamp_ms": 1000, "source": "elevenlabs", "event_type": "connection_state", "data": {"data": {"state": "session_started"}}},
+      {"timestamp_ms": 2000, "source": "elevenlabs", "event_type": "audio_start", "data": {"user": "pipecat_agent", "audio_timestamp": 2.0}},
+      {"timestamp_ms": 2000, "source": "audit_log", "event_type": "assistant", "data": "Hello, how can I help?"},
+      {"timestamp_ms": 3000, "source": "elevenlabs", "event_type": "audio_end", "data": {"user": "pipecat_agent", "audio_timestamp": 3.0}},
+      {"timestamp_ms": 3500, "source": "elevenlabs", "event_type": "assistant_speech", "data": {"data": {"text": "Hello, how can I help?", "source": "pipecat_assistant"}}},
+      {"timestamp_ms": 3500, "source": "pipecat", "event_type": "tts_text", "data": {"frame": "Hello! How can I assist you today?"}},
+      {"timestamp_ms": 4000, "source": "elevenlabs", "event_type": "audio_start", "data": {"user": "elevenlabs_user", "audio_timestamp": 4.0}},
+      {"timestamp_ms": 4000, "source": "audit_log", "event_type": "user", "data": "My name is Alice."},
+      {"timestamp_ms": 5000, "source": "elevenlabs", "event_type": "audio_end", "data": {"user": "elevenlabs_user", "audio_timestamp": 5.0}},
+      {"timestamp_ms": 5500, "source": "elevenlabs", "event_type": "user_speech", "data": {"data": {"text": "My name is Alice.", "source": "elevenlabs_agent"}}},
+      {"timestamp_ms": 6000, "source": "elevenlabs", "event_type": "audio_start", "data": {"user": "pipecat_agent", "audio_timestamp": 6.0}},
+      {"timestamp_ms": 6000, "source": "audit_log", "event_type": "tool_call", "data": {"tool": "lookup_user", "parameters": {"name": "Alice"}}},
+      {"timestamp_ms": 6000, "source": "audit_log", "event_type": "tool_response", "data": {"tool": "lookup_user", "response": {"id": 123}}},
+      {"timestamp_ms": 6000, "source": "audit_log", "event_type": "assistant", "data": "Found your account Alice."},
+      {"timestamp_ms": 7000, "source": "elevenlabs", "event_type": "audio_end", "data": {"user": "pipecat_agent", "audio_timestamp": 7.0}},
+      {"timestamp_ms": 7500, "source": "elevenlabs", "event_type": "assistant_speech", "data": {"data": {"text": "Found your account Alice.", "source": "pipecat_assistant"}}},
+      {"timestamp_ms": 7500, "source": "pipecat", "event_type": "tts_text", "data": {"frame": "I found your account, Alice! How can I help?"}},
+      {"timestamp_ms": 8000, "source": "elevenlabs", "event_type": "audio_start", "data": {"user": "elevenlabs_user", "audio_timestamp": 8.0}},
+      {"timestamp_ms": 8000, "source": "audit_log", "event_type": "user", "data": "Cancel my order please."},
+      {"timestamp_ms": 9000, "source": "elevenlabs", "event_type": "audio_end", "data": {"user": "elevenlabs_user", "audio_timestamp": 9.0}},
+      {"timestamp_ms": 9500, "source": "elevenlabs", "event_type": "user_speech", "data": {"data": {"text": "Cancel my order please.", "source": "elevenlabs_agent"}}},
+      {"timestamp_ms": 10000, "source": "elevenlabs", "event_type": "audio_start", "data": {"user": "pipecat_agent", "audio_timestamp": 10.0}},
+      {"timestamp_ms": 10000, "source": "audit_log", "event_type": "tool_call", "data": {"tool": "cancel_order", "parameters": {"user_id": 123}}},
+      {"timestamp_ms": 10000, "source": "audit_log", "event_type": "tool_response", "data": {"tool": "cancel_order", "response": {"status": "cancelled"}}},
+      {"timestamp_ms": 10000, "source": "audit_log", "event_type": "assistant", "data": "Your order has been cancelled."},
+      {"timestamp_ms": 11000, "source": "elevenlabs", "event_type": "audio_end", "data": {"user": "pipecat_agent", "audio_timestamp": 11.0}},
+      {"timestamp_ms": 11500, "source": "elevenlabs", "event_type": "assistant_speech", "data": {"data": {"text": "Your order has been cancelled.", "source": "pipecat_assistant"}}},
+      {"timestamp_ms": 11500, "source": "pipecat", "event_type": "tts_text", "data": {"frame": "Done! Your order has been cancelled successfully."}},
+      {"timestamp_ms": 12000, "source": "elevenlabs", "event_type": "connection_state", "data": {"data": {"state": "session_ended"}}}
+    ],
+    "expected": {
+      "transcribed_user_turns": {
+        "1": "My name is Alice.",
+        "2": "Cancel my order please."
+      },
+      "intended_user_turns": {
+        "1": "My name is Alice.",
+        "2": "Cancel my order please."
+      },
+      "intended_assistant_turns": {
+        "0": "Hello! How can I assist you today?",
+        "1": "I found your account, Alice! How can I help?",
+        "2": "Your order has been cancelled. [speaker likely cut itself off]"
+      },
+      "transcribed_assistant_turns": {
+        "0": "Hello, how can I help?",
+        "1": "Found your account Alice.",
+        "2": "Your order has been cancelled. [speaker likely cut itself off]"
+      },
+      "conversation_trace": [
+        {"role": "assistant", "content": "Hello, how can I help?", "type": "intended", "turn_id": 0},
+        {"role": "user", "content": "My name is Alice.", "type": "transcribed", "turn_id": 1},
+        {"type": "tool_call", "tool_name": "lookup_user", "parameters": {"name": "Alice"}, "turn_id": 1},
+        {"type": "tool_response", "tool_name": "lookup_user", "tool_response": {"id": 123}, "turn_id": 1},
+        {"role": "assistant", "content": "Found your account Alice.", "type": "intended", "turn_id": 1},
+        {"role": "user", "content": "Cancel my order please.", "type": "transcribed", "turn_id": 2},
+        {"type": "tool_call", "tool_name": "cancel_order", "parameters": {"user_id": 123}, "turn_id": 2},
+        {"type": "tool_response", "tool_name": "cancel_order", "tool_response": {"status": "cancelled"}, "turn_id": 2},
+        {"role": "assistant", "content": "Your order has been cancelled. [speaker likely cut itself off]", "type": "intended", "turn_id": 2}
+      ]
+    }
   }
 ]
