@@ -158,9 +158,9 @@ class TelnyxAssistantManager:
                 "model": self.DEFAULT_STT_MODEL,
                 "language": "en",
                 "settings": {
-                    "eot_threshold": 0.8,
+                    "eot_threshold": 0.9,
                     "eot_timeout_ms": 5000,
-                    "eager_eot_threshold": 0.8,
+                    "eager_eot_threshold": 0.9,
                 },
             },
             "telephony_settings": {
