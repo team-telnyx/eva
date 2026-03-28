@@ -134,6 +134,15 @@ class TelephonyBridgeConfig(BaseModel):
     )
     webhook_port: int = Field(8888, description="Port for the tool webhook service")
     webhook_base_url: str = Field(description="Public URL for tool webhooks (e.g., ngrok URL)")
+    telnyx_assistant_id: str | None = Field(
+        None,
+        description="Telnyx AI Assistant ID. Required when --model is used to PATCH the assistant model before the run.",
+    )
+    model: str | None = Field(
+        None,
+        description="LLM model to set on the Telnyx assistant before the run (e.g., 'gpt-4.1', 'moonshotai/Kimi-K2.5'). "
+        "Requires telnyx_assistant_id.",
+    )
     stt: str | None = Field(None, description="STT model used for transcript generation")
     stt_params: dict[str, Any] = Field({}, description="Additional STT model parameters (JSON)")
 
@@ -170,6 +179,16 @@ class TelephonyBridgeConfig(BaseModel):
                 f"sip_uri must be a SIP URI (sip:...), tel: URI, or E.164 phone number (+...): got {value!r}"
             )
         return value
+
+    @model_validator(mode="after")
+    def _validate_model_requires_assistant_id(self) -> "TelephonyBridgeConfig":
+        """Ensure telnyx_assistant_id is set when model is specified."""
+        if self.model and not self.telnyx_assistant_id:
+            raise ValueError(
+                "telnyx_assistant_id is required when model is set. "
+                "Set EVA_MODEL__TELNYX_ASSISTANT_ID or --telnyx-assistant-id."
+            )
+        return self
 
 
 _PIPELINE_FIELDS = {
