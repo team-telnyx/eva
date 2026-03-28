@@ -96,7 +96,8 @@ class TelnyxAssistantManager:
                     f"Failed to get Telnyx assistant {assistant_id}: "
                     f"{response.status} {json.dumps(payload, sort_keys=True)}",
                 )
-            model = payload.get("data", {}).get("model", "")
+            # API may return model at top level or under "data"
+            model = payload.get("model") or payload.get("data", {}).get("model", "")
             logger.info(f"Current model for assistant {assistant_id}: {model}")
             return model
 
