@@ -363,7 +363,7 @@ class TestTelephonyBridgeServer:
                 "type": "turn_end",
                 "timestamp": 1774657812999,
                 "start_timestamp": 1774657812999,
-                "data": {},
+                "data": {"frame": ""},
             },
             {
                 "type": "tts_text",

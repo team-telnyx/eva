@@ -637,7 +637,7 @@ class TelephonyBridgeServer:
                                 "type": "turn_end",
                                 "timestamp": item["timestamp_ms"] - 1,
                                 "start_timestamp": item["timestamp_ms"] - 1,
-                                "data": {},
+                                "data": {"frame": ""},
                             },
                             ensure_ascii=False,
                         )
