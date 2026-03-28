@@ -138,7 +138,7 @@ class TelephonyBridgeConfig(BaseModel):
         None,
         description="Telnyx AI Assistant ID. Required when --model is used to PATCH the assistant model before the run.",
     )
-    model: str | None = Field(
+    telnyx_llm: str | None = Field(
         None,
         description="LLM model to set on the Telnyx assistant before the run (e.g., 'gpt-4.1', 'moonshotai/Kimi-K2.5'). "
         "Requires telnyx_assistant_id.",
@@ -183,7 +183,7 @@ class TelephonyBridgeConfig(BaseModel):
     @model_validator(mode="after")
     def _validate_model_requires_assistant_id(self) -> "TelephonyBridgeConfig":
         """Ensure telnyx_assistant_id is set when model is specified."""
-        if self.model and not self.telnyx_assistant_id:
+        if self.telnyx_llm and not self.telnyx_assistant_id:
             raise ValueError(
                 "telnyx_assistant_id is required when model is set. "
                 "Set EVA_MODEL__TELNYX_ASSISTANT_ID or --telnyx-assistant-id."
@@ -212,6 +212,8 @@ _TELEPHONY_FIELDS = {
     "webhook_base_url",
     "stt",
     "stt_params",
+    "telnyx_assistant_id",
+    "telnyx_llm",
 }
 
 

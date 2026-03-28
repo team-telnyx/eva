@@ -100,18 +100,18 @@ class BenchmarkRunner:
 
             # PATCH assistant model if --model is set
             bridge_config = self.config.model
-            if bridge_config.model and bridge_config.telnyx_assistant_id:
+            if bridge_config.telnyx_llm and bridge_config.telnyx_assistant_id:
                 from eva.assistant.telnyx_setup import TelnyxAssistantManager
 
                 manager = TelnyxAssistantManager(api_key=bridge_config.telnyx_api_key)
                 try:
                     self._original_model = await manager.get_assistant_model(bridge_config.telnyx_assistant_id)
-                    await manager.update_assistant_model(bridge_config.telnyx_assistant_id, bridge_config.model)
+                    await manager.update_assistant_model(bridge_config.telnyx_assistant_id, bridge_config.telnyx_llm)
                 finally:
                     await manager.close()
 
                 # Tag all conversations with the model
-                self.tool_webhook_service.set_model_tag(bridge_config.model)
+                self.tool_webhook_service.set_model_tag(bridge_config.telnyx_llm)
 
     async def _stop_support_services(self) -> None:
         """Stop optional runner-scoped services."""
