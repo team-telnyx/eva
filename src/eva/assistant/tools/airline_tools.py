@@ -1274,3 +1274,8 @@ def transfer_to_agent(params: dict, db: dict, call_index: int) -> dict:
         "estimated_wait": "2-3 minutes",
         "message": "Transferring to live agent",
     }
+
+
+def end_call(params: dict, db: dict, call_index: int) -> dict:
+    """End the phone call."""
+    return {"status": "call_ended"}

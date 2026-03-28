@@ -288,6 +288,16 @@ class ConversationWorker:
                 await webhook_service.register_route_id(eva_call_id, registration_key)
                 webhook_service.set_record_id(eva_call_id, record_id)
 
+                # Wire end_call tool to trigger Call Control hangup.
+                transport = bridge._transport
+                if transport is not None:
+
+                    async def _trigger_hangup() -> None:
+                        bridge._session_end_reason = "goodbye"
+                        await transport.stop()
+
+                    await webhook_service.set_end_call_handler(eva_call_id, _trigger_hangup)
+
             bridge._tool_webhook_register_callback = _register_eva_call_id
 
         await self._assistant_server.start()

@@ -3,6 +3,7 @@
 import asyncio
 import json
 from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import uvicorn
@@ -21,6 +22,7 @@ class _ConversationRegistration:
 
     executor: ToolExecutor
     audit_log: AuditLog = field(default_factory=AuditLog)
+    on_end_call: Callable[[], Awaitable[None]] | None = None
 
 
 class ToolWebhookService:
@@ -104,6 +106,13 @@ class ToolWebhookService:
         async with self._lock:
             self._conversations[call_id] = registration
         logger.info(f"Registered tool webhook conversation {call_id}")
+
+    async def set_end_call_handler(self, call_id: str, handler: Callable[[], Awaitable[None]]) -> None:
+        """Register a callback invoked when the assistant calls the end_call tool."""
+        async with self._lock:
+            registration = self._conversations.get(call_id)
+            if registration is not None:
+                registration.on_end_call = handler
 
     async def register_route_id(self, route_id: str, registration_key: str) -> None:
         """Register an external routing ID so tool webhook requests can be routed.
@@ -238,6 +247,14 @@ class ToolWebhookService:
                 raise HTTPException(status_code=400, detail="Tool webhook body must be a JSON object")
 
             registration.audit_log.append_tool_call(tool_name, params)
+
+            # Handle end_call: trigger hangup via the registered callback.
+            if tool_name == "end_call" and registration.on_end_call is not None:
+                registration.audit_log.append_tool_response(tool_name, {"status": "call_ended"})
+                logger.info("end_call tool invoked for call %s — triggering hangup", call_id)
+                asyncio.create_task(registration.on_end_call())
+                return {"status": "call_ended"}
+
             result = await registration.executor.execute(tool_name, params)
             registration.audit_log.append_tool_response(tool_name, result)
 

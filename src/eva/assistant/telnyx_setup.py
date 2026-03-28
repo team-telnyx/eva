@@ -114,15 +114,20 @@ class TelnyxAssistantManager:
             self._build_webhook_tool(tool, normalized_webhook_base)
             for tool in agent_config.tools
         ]
-        tools.append({
-            "type": "hangup",
-            "hangup": {
-                "description": (
-                    "To be used whenever the conversation has ended "
-                    "and it would be appropriate to hangup the call."
-                ),
-            },
-        })
+        # If the agent config includes an end_call tool, it will be registered
+        # as a webhook tool and will trigger hangup via our Call Control API.
+        # Only add the built-in hangup tool if no end_call webhook tool exists.
+        has_end_call_tool = any(t.id == "end_call" for t in agent_config.tools)
+        if not has_end_call_tool:
+            tools.append({
+                "type": "hangup",
+                "hangup": {
+                    "description": (
+                        "To be used whenever the conversation has ended "
+                        "and it would be appropriate to hangup the call."
+                    ),
+                },
+            })
 
         return {
             "name": f"EVA Benchmark - {agent_config.name}",
