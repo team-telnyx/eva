@@ -617,12 +617,16 @@ class TelephonyBridgeServer:
                 return conversation_id
         return None
 
-    def _read_assistant_speech_timestamps(self) -> list[int]:
-        """Read assistant_speech timestamps from the bridge VAD observer's event log.
+    def _read_assistant_audio_start_timestamps(self) -> list[int]:
+        """Read audio_start timestamps for assistant (pipecat_agent) turns.
 
-        These timestamps reflect when the assistant's speech was actually heard
-        (via Deepgram transcription), as opposed to Conversations API sent_at
-        timestamps which reflect when the LLM generated the text.
+        Uses audio_start events rather than assistant_speech events because
+        audio_start fires when VAD first detects speech, while assistant_speech
+        fires after Deepgram transcription completes — which can be delayed
+        enough to fall *after* the user's next audio_start.  That delay causes
+        the metrics processor to assign the greeting's tts_text to the wrong
+        turn (turn 1 instead of turn 0), cascading a turn misalignment through
+        all subsequent metrics.
         """
         events_path = self.output_dir / "elevenlabs_events.jsonl"
         if not events_path.exists():
@@ -637,7 +641,10 @@ class TelephonyBridgeServer:
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if event.get("type") == "assistant_speech":
+                if (
+                    event.get("event_type") == "audio_start"
+                    and event.get("user") == "pipecat_agent"
+                ):
                     ts = event.get("timestamp", 0)
                     if ts:
                         timestamps.append(ts)
@@ -651,14 +658,15 @@ class TelephonyBridgeServer:
         elif self._eva_call_id:
             logger.warning("No Telnyx conversation_id found for eva_call_id %s", self._eva_call_id)
 
-        # Use bridge VAD observer timestamps (when speech was actually heard)
-        # instead of Conversations API sent_at (when LLM generated the text).
-        # This ensures pipecat events interleave correctly with user speech
-        # events for proper turn boundary detection.
-        spoken_timestamps = self._read_assistant_speech_timestamps()
+        # Use bridge VAD audio_start timestamps (when assistant speech was
+        # first detected) instead of Conversations API sent_at (when the LLM
+        # generated the text).  audio_start fires before transcription delay,
+        # ensuring the greeting tts_text is correctly placed before the user's
+        # first audio_start for proper turn boundary detection.
+        audio_start_timestamps = self._read_assistant_audio_start_timestamps()
         for i, item in enumerate(intended_speech):
-            if i < len(spoken_timestamps):
-                item["timestamp_ms"] = spoken_timestamps[i]
+            if i < len(audio_start_timestamps):
+                item["timestamp_ms"] = audio_start_timestamps[i]
 
         with open(pipecat_logs_path, "w", encoding="utf-8") as file_obj:
             for i, item in enumerate(intended_speech):
