@@ -306,7 +306,7 @@ class TestTelephonyBridgeServer:
 
         messages = await bridge._fetch_intended_assistant_speech("tel-conv-123")
 
-        assert capture["url"] == "https://api.telnyx.com/v2/ai/conversations/tel-conv-123/messages"
+        assert capture["url"] == "https://api.telnyx.com/v2/ai/conversations/tel-conv-123/messages?page[size]=100"
         assert capture["session_kwargs"]["headers"] == {"Authorization": "Bearer telnyx-key"}
         assert messages == [
             {
@@ -355,11 +355,19 @@ class TestTelephonyBridgeServer:
         assert [json.loads(line) for line in lines] == [
             {
                 "type": "tts_text",
+                "timestamp": 1774657810000,
                 "start_timestamp": 1774657810000,
                 "data": {"frame": "Hello there"},
             },
             {
+                "type": "turn_end",
+                "timestamp": 1774657812999,
+                "start_timestamp": 1774657812999,
+                "data": {},
+            },
+            {
                 "type": "tts_text",
+                "timestamp": 1774657813000,
                 "start_timestamp": 1774657813000,
                 "data": {"frame": "How can I help?"},
             },

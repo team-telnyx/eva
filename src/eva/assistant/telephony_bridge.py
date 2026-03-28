@@ -540,7 +540,7 @@ class TelephonyBridgeServer:
             logger.warning("Skipping Telnyx conversation message fetch: missing API key")
             return []
 
-        url = f"{_TELNYX_CONVERSATIONS_API_BASE_URL}/ai/conversations/{conversation_id}/messages"
+        url = f"{_TELNYX_CONVERSATIONS_API_BASE_URL}/ai/conversations/{conversation_id}/messages?page[size]=100"
         timeout = aiohttp.ClientTimeout(total=30.0)
 
         try:
@@ -626,11 +626,28 @@ class TelephonyBridgeServer:
             logger.warning("No Telnyx conversation_id found for eva_call_id %s", self._eva_call_id)
 
         with open(pipecat_logs_path, "w", encoding="utf-8") as file_obj:
-            for item in intended_speech:
+            for i, item in enumerate(intended_speech):
+                # Insert turn_end between consecutive tts_text events so the
+                # pipecat log aggregator doesn't merge separate assistant
+                # messages into one giant chunk.
+                if i > 0:
+                    file_obj.write(
+                        json.dumps(
+                            {
+                                "type": "turn_end",
+                                "timestamp": item["timestamp_ms"] - 1,
+                                "start_timestamp": item["timestamp_ms"] - 1,
+                                "data": {},
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
                 file_obj.write(
                     json.dumps(
                         {
                             "type": "tts_text",
+                            "timestamp": item["timestamp_ms"],
                             "start_timestamp": item["timestamp_ms"],
                             "data": {"frame": item["text"]},
                         },
