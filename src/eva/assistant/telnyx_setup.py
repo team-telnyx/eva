@@ -209,14 +209,27 @@ class TelnyxAssistantManager:
             normalized_webhook_base,
             f", model → {model}" if model else "",
         )
-        async with self.session.patch(get_url, json=payload) as response:
-            response_payload = await self._parse_response_json(response)
-            if response.status >= 400:
-                raise RuntimeError(
-                    f"Failed to patch Telnyx assistant {assistant_id}: "
-                    f"{response.status} {json.dumps(response_payload, sort_keys=True)}",
-                )
-        logger.info("Patched Telnyx assistant %s webhook URLs", assistant_id)
+        # Retry PATCH up to 3 times with short delays — Telnyx webhook URL
+        # validation can intermittently reject valid URLs (10015).
+        import asyncio as _asyncio
+        for attempt in range(3):
+            async with self.session.patch(get_url, json=payload) as response:
+                response_payload = await self._parse_response_json(response)
+                if response.status < 400:
+                    logger.info("Patched Telnyx assistant %s webhook URLs", assistant_id)
+                    return
+                if attempt < 2:
+                    logger.warning(
+                        "Patch attempt %d/3 failed (%d), retrying in 2s: %s",
+                        attempt + 1, response.status,
+                        json.dumps(response_payload, sort_keys=True)[:200],
+                    )
+                    await _asyncio.sleep(2)
+                else:
+                    raise RuntimeError(
+                        f"Failed to patch Telnyx assistant {assistant_id}: "
+                        f"{response.status} {json.dumps(response_payload, sort_keys=True)}",
+                    )
 
     async def close(self) -> None:
         """Close the underlying HTTP session if owned by the manager."""
