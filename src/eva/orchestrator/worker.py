@@ -61,6 +61,7 @@ class ConversationWorker:
         port: int,
         output_id: str,
         tool_webhook_service: ToolWebhookService | None = None,
+        webhook_base_url: str | None = None,
     ):
         """Initialize the conversation worker.
 
@@ -73,6 +74,8 @@ class ConversationWorker:
             output_dir: Output directory for this record
             port: WebSocket server port to use
             output_id: Output identifier (may include trial suffix like "1.2.1/trial_0")
+            tool_webhook_service: Shared webhook service for telephony bridge runs
+            webhook_base_url: Runtime public webhook URL for telephony bridge runs
         """
         self.config = config
         self.record = record
@@ -83,6 +86,7 @@ class ConversationWorker:
         self.port = port
         self.output_id = output_id
         self.tool_webhook_service = tool_webhook_service
+        self.webhook_base_url = webhook_base_url
 
         # Will be set during run
         self._assistant_server: AssistantServer | TelephonyBridgeServer | None = None
@@ -245,10 +249,13 @@ class ConversationWorker:
         if is_telephony_bridge:
             if self.tool_webhook_service is None:
                 raise RuntimeError("ToolWebhookService is required for telephony bridge conversations")
+            if not self.webhook_base_url:
+                raise RuntimeError("webhook_base_url is required for telephony bridge conversations")
 
             self._assistant_server = TelephonyBridgeServer(
                 current_date_time=self.record.current_date_time,
                 bridge_config=self.config.model,
+                webhook_base_url=self.webhook_base_url,
                 agent=self.agent,
                 agent_config_path=self.agent_config_path,
                 scenario_db_path=self.scenario_db_path,

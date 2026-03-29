@@ -10,7 +10,12 @@ import pytest
 import yaml
 from fastapi import WebSocketDisconnect
 
-from eva.assistant.telephony_bridge import BaseTelephonyTransport, TelephonyBridgeConfig, TelephonyBridgeServer, _SessionState
+from eva.assistant.telephony_bridge import (
+    BaseTelephonyTransport,
+    TelephonyBridgeConfig,
+    TelephonyBridgeServer,
+    _SessionState,
+)
 
 
 class _FakeObserver:
@@ -166,10 +171,10 @@ def _make_bridge(
             telnyx_api_key="telnyx-key",
             call_control_app_id="app-123",
             call_control_from="+15551234567",
-            webhook_base_url="https://example.ngrok-free.dev",
             stt="deepgram",
             stt_params={"api_key": "test-key", "model": "nova-2"},
         ),
+        webhook_base_url="https://eva.trycloudflare.com",
         agent=MagicMock(tool_module_path="eva.assistant.tools.airline_tools"),
         agent_config_path=str(agent_config_path),
         scenario_db_path=str(scenario_db_path),
@@ -381,7 +386,6 @@ class TestTelephonyBridgeServer:
             telnyx_api_key="telnyx-key",
             call_control_app_id="app-123",
             call_control_from="+15551234567",
-            webhook_base_url="https://example.ngrok-free.dev",
         )
 
         created: dict[str, str] = {}
@@ -414,5 +418,5 @@ class TestTelephonyBridgeServer:
             "app_id": "app-123",
             "from_number": "+15551234567",
             "conversation_id": "conv-1",
-            "webhook_base_url": "https://example.ngrok-free.dev",
+            "webhook_base_url": "https://eva.trycloudflare.com",
         }

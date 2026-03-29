@@ -240,6 +240,7 @@ class TelephonyBridgeServer:
         self,
         current_date_time: str,
         bridge_config: TelephonyBridgeConfig,
+        webhook_base_url: str,
         agent: AgentConfig,
         agent_config_path: str,
         scenario_db_path: str,
@@ -253,6 +254,7 @@ class TelephonyBridgeServer:
     ):
         self.current_date_time = current_date_time
         self.bridge_config = bridge_config
+        self.webhook_base_url = webhook_base_url
         self.agent = agent
         self.agent_config_path = agent_config_path
         self.scenario_db_path = scenario_db_path
@@ -369,7 +371,7 @@ class TelephonyBridgeServer:
             app_id=config.call_control_app_id,
             from_number=config.call_control_from,
             conversation_id=conversation_id,
-            webhook_base_url=config.webhook_base_url,
+            webhook_base_url=self.webhook_base_url,
         )
 
     async def _handle_session(self, websocket: WebSocket) -> None:

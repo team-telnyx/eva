@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from eva.assistant.tool_webhook import ToolWebhookService
+from eva.assistant.tunnel import CloudflareTunnel
 from eva.metrics.runner import MetricsRunner, MetricsRunResult
 from eva.models.agents import AgentConfig
 from eva.models.config import PipelineConfig, RunConfig, TelephonyBridgeConfig
@@ -15,7 +17,6 @@ from eva.models.results import ConversationResult, RunResult
 from eva.orchestrator.port_pool import PortPool
 from eva.orchestrator.validation_runner import ValidationRunner
 from eva.orchestrator.worker import ConversationWorker
-from eva.assistant.tool_webhook import ToolWebhookService
 from eva.utils.conversation_checks import check_conversation_finished, find_records_with_llm_generic_error
 from eva.utils.logging import get_logger
 from eva.utils.provenance import capture_provenance, resolve_tool_module_file
@@ -57,6 +58,7 @@ class BenchmarkRunner:
         self._failed_record_ids: list[str] = []
         self.tool_webhook_service: ToolWebhookService | None = None
         self._original_model: str | None = None
+        self._webhook_base_url: str | None = None
 
     def _load_agent_config(self) -> AgentConfig:
         """Load single agent configuration."""
@@ -92,26 +94,37 @@ class BenchmarkRunner:
         # No filtering - return all records
         return records
 
-    async def _start_support_services(self) -> None:
+    async def _start_support_services(self, webhook_base_url: str | None = None) -> None:
         """Start optional runner-scoped services (e.g., tool webhook for telephony bridge)."""
         if isinstance(self.config.model, TelephonyBridgeConfig) and self.tool_webhook_service is None:
             self.tool_webhook_service = ToolWebhookService(port=self.config.model.webhook_port)
             await self.tool_webhook_service.start()
 
-            # PATCH assistant model if --model is set
             bridge_config = self.config.model
-            if bridge_config.telnyx_llm and bridge_config.telnyx_assistant_id:
+            if webhook_base_url and bridge_config.telnyx_assistant_id:
                 from eva.assistant.telnyx_setup import TelnyxAssistantManager
 
                 manager = TelnyxAssistantManager(api_key=bridge_config.telnyx_api_key)
                 try:
-                    self._original_model = await manager.get_assistant_model(bridge_config.telnyx_assistant_id)
-                    await manager.update_assistant_model(bridge_config.telnyx_assistant_id, bridge_config.telnyx_llm)
+                    if bridge_config.telnyx_llm:
+                        self._original_model = await manager.get_assistant_model(bridge_config.telnyx_assistant_id)
+                    await manager.setup_assistant(
+                        assistant_id=bridge_config.telnyx_assistant_id,
+                        agent_config=self.agent,
+                        agent_config_path=str(self.config.agent_config_path),
+                        webhook_base_url=webhook_base_url,
+                        model=bridge_config.telnyx_llm,
+                    )
                 finally:
                     await manager.close()
-
-                # Tag all conversations with the model
-                self.tool_webhook_service.set_model_tag(bridge_config.telnyx_llm)
+                if bridge_config.telnyx_llm:
+                    self.tool_webhook_service.set_model_tag(bridge_config.telnyx_llm)
+            elif webhook_base_url and not bridge_config.telnyx_assistant_id:
+                logger.warning(
+                    "Telephony bridge is using runtime webhook URL %s but telnyx_assistant_id is not set; "
+                    "assistant webhooks were not patched",
+                    webhook_base_url,
+                )
 
     async def _stop_support_services(self) -> None:
         """Stop optional runner-scoped services."""
@@ -152,12 +165,25 @@ class BenchmarkRunner:
         Returns:
             RunResult with final counts and duration
         """
-        await self._start_support_services()
+        if isinstance(self.config.model, TelephonyBridgeConfig):
+            async with CloudflareTunnel(port=self.config.model.webhook_port) as tunnel:
+                return await self._run_with_support_services(records, webhook_base_url=tunnel.url)
+        return await self._run_with_support_services(records)
+
+    async def _run_with_support_services(
+        self,
+        records: list[EvaluationRecord],
+        webhook_base_url: str | None = None,
+    ) -> RunResult:
+        """Run the benchmark with any runner-scoped services configured."""
+        self._webhook_base_url = webhook_base_url
+        await self._start_support_services(webhook_base_url=webhook_base_url)
 
         try:
             return await self._run_with_validation_inner(records)
         finally:
             await self._stop_support_services()
+            self._webhook_base_url = None
 
     async def _run_with_validation_inner(self, records: list[EvaluationRecord]) -> RunResult:
         """Inner implementation of run() — separated so the caller can wrap with finally."""
@@ -192,10 +218,12 @@ class BenchmarkRunner:
                 "llm": self.config.model.llm,
             }
         elif isinstance(self.config.model, TelephonyBridgeConfig):
+            if not self._webhook_base_url:
+                raise RuntimeError("webhook_base_url must be initialized before telephony runs start")
             self.config.resolved_models = {
                 "transport": "call_control",
                 "sip_uri": self.config.model.sip_uri,
-                "webhook_base_url": self.config.model.webhook_base_url,
+                "webhook_base_url": self._webhook_base_url,
                 "call_control_app_id": self.config.model.call_control_app_id,
                 "call_control_from": self.config.model.call_control_from,
                 "stt_provider": self.config.model.stt,
@@ -463,6 +491,7 @@ class BenchmarkRunner:
                 port=port,
                 output_id=output_id,
                 tool_webhook_service=self.tool_webhook_service,
+                webhook_base_url=self._webhook_base_url,
             )
 
             # Run conversation
@@ -620,17 +649,117 @@ class BenchmarkRunner:
         rerun_history: dict[str, list[dict]] = {}
         pending_ids = list(failed_ids)
 
+        return await self._validate_existing_with_support_services(
+            pending_ids=pending_ids,
+            max_attempts=max_attempts,
+            output_id_to_record=output_id_to_record,
+            records_dir=records_dir,
+            rerun_history=rerun_history,
+            total_passed=total_passed,
+            already_passed_ids=already_passed_ids,
+            filtered_records=filtered_records,
+            started_at=started_at,
+            needs_validation_ids=needs_validation_ids,
+            failed_ids=failed_ids,
+            all_output_ids=all_output_ids,
+            validation_results=validation_results,
+        )
+
+    async def _validate_existing_with_support_services(
+        self,
+        *,
+        pending_ids: list[str],
+        max_attempts: int,
+        output_id_to_record: dict[str, EvaluationRecord],
+        records_dir: Path,
+        rerun_history: dict[str, list[dict]],
+        total_passed: int,
+        already_passed_ids: set[str],
+        filtered_records: list[EvaluationRecord],
+        started_at: datetime,
+        needs_validation_ids: list[str],
+        failed_ids: list[str],
+        all_output_ids: list[str],
+        validation_results: dict[str, Any],
+    ) -> RunResult:
+        """Rerun failed records from an existing run with any required support services."""
+        if isinstance(self.config.model, TelephonyBridgeConfig) and pending_ids:
+            async with CloudflareTunnel(port=self.config.model.webhook_port) as tunnel:
+                return await self._rerun_failed_records_with_support_services(
+                    pending_ids=pending_ids,
+                    max_attempts=max_attempts,
+                    output_id_to_record=output_id_to_record,
+                    records_dir=records_dir,
+                    rerun_history=rerun_history,
+                    total_passed=total_passed,
+                    already_passed_ids=already_passed_ids,
+                    filtered_records=filtered_records,
+                    started_at=started_at,
+                    needs_validation_ids=needs_validation_ids,
+                    failed_ids=failed_ids,
+                    all_output_ids=all_output_ids,
+                    validation_results=validation_results,
+                    webhook_base_url=tunnel.url,
+                )
+
+        return await self._rerun_failed_records_with_support_services(
+            pending_ids=pending_ids,
+            max_attempts=max_attempts,
+            output_id_to_record=output_id_to_record,
+            records_dir=records_dir,
+            rerun_history=rerun_history,
+            total_passed=total_passed,
+            already_passed_ids=already_passed_ids,
+            filtered_records=filtered_records,
+            started_at=started_at,
+            needs_validation_ids=needs_validation_ids,
+            failed_ids=failed_ids,
+            all_output_ids=all_output_ids,
+            validation_results=validation_results,
+        )
+
+    async def _rerun_failed_records_with_support_services(
+        self,
+        *,
+        pending_ids: list[str],
+        max_attempts: int,
+        output_id_to_record: dict[str, EvaluationRecord],
+        records_dir: Path,
+        rerun_history: dict[str, list[dict]],
+        total_passed: int,
+        already_passed_ids: set[str],
+        filtered_records: list[EvaluationRecord],
+        started_at: datetime,
+        needs_validation_ids: list[str],
+        failed_ids: list[str],
+        all_output_ids: list[str],
+        validation_results: dict[str, Any],
+        webhook_base_url: str | None = None,
+    ) -> RunResult:
+        """Wrap reruns with support services for both fresh and existing runs."""
+        self._webhook_base_url = webhook_base_url
         if pending_ids:
-            await self._start_support_services()
+            await self._start_support_services(webhook_base_url=webhook_base_url)
 
         try:
             return await self._rerun_failed_records(
-                pending_ids, max_attempts, output_id_to_record, records_dir,
-                rerun_history, total_passed, already_passed_ids, filtered_records,
-                started_at, needs_validation_ids, failed_ids,
+                pending_ids=pending_ids,
+                max_attempts=max_attempts,
+                output_id_to_record=output_id_to_record,
+                records_dir=records_dir,
+                rerun_history=rerun_history,
+                total_passed=total_passed,
+                already_passed_ids=already_passed_ids,
+                filtered_records=filtered_records,
+                started_at=started_at,
+                needs_validation_ids=needs_validation_ids,
+                failed_ids=failed_ids,
+                all_output_ids=all_output_ids,
+                validation_results=validation_results,
             )
         finally:
             await self._stop_support_services()
+            self._webhook_base_url = None
 
     async def _rerun_failed_records(
         self,
@@ -645,6 +774,8 @@ class BenchmarkRunner:
         started_at,
         needs_validation_ids: list[str],
         failed_ids: list[str],
+        all_output_ids: list[str],
+        validation_results: dict[str, Any],
     ) -> RunResult:
         """Rerun failed records — extracted so validate_existing can wrap with try/finally."""
         for attempt_number in range(1, max_attempts + 1):

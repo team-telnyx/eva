@@ -268,7 +268,6 @@ class TestRunConfig:
                 "EVA_MODEL__TELNYX_API_KEY": "telnyx-key",
                 "EVA_MODEL__CALL_CONTROL_APP_ID": "app-123",
                 "EVA_MODEL__CALL_CONTROL_FROM": "+15551234567",
-                "EVA_MODEL__WEBHOOK_BASE_URL": "https://example.ngrok-free.dev/",
                 "EVA_MODEL__WEBHOOK_PORT": "9999",
                 "EVA_MODEL__STT": "deepgram",
                 "EVA_MODEL__STT_PARAMS": json.dumps({"api_key": "test_key", "model": "nova-2"}),
@@ -278,7 +277,6 @@ class TestRunConfig:
         assert isinstance(config.model, TelephonyBridgeConfig)
         assert config.model.sip_uri == "sip:assistant@example.com"
         assert config.model.webhook_port == 9999
-        assert config.model.webhook_base_url == "https://example.ngrok-free.dev"
         assert config.model.stt == "deepgram"
 
     def test_call_control_config(self):
@@ -290,7 +288,6 @@ class TestRunConfig:
                 "EVA_MODEL__TELNYX_API_KEY": "telnyx-key",
                 "EVA_MODEL__CALL_CONTROL_APP_ID": "app-123",
                 "EVA_MODEL__CALL_CONTROL_FROM": "+15551234567",
-                "EVA_MODEL__WEBHOOK_BASE_URL": "https://example.ngrok-free.dev/",
             }
         )
 
@@ -321,7 +318,6 @@ class TestRunConfig:
                     "EVA_MODEL__TELNYX_API_KEY": "telnyx-key",
                     "EVA_MODEL__CALL_CONTROL_APP_ID": "app-123",
                     "EVA_MODEL__CALL_CONTROL_FROM": "+15551234567",
-                    "EVA_MODEL__WEBHOOK_BASE_URL": "https://example.ngrok-free.dev",
                 }
             )
 

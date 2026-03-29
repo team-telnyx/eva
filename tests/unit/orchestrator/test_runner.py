@@ -4,6 +4,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -213,7 +214,6 @@ class TestSupportServices:
                     telnyx_api_key="telnyx-key",
                     call_control_app_id="app-123",
                     call_control_from="+15551234567",
-                    webhook_base_url="https://example.ngrok-free.dev",
                     webhook_port=9988,
                 )
             }
@@ -245,7 +245,6 @@ class TestSupportServices:
                     telnyx_api_key="telnyx-key",
                     call_control_app_id="app-123",
                     call_control_from="+15551234567",
-                    webhook_base_url="https://example.ngrok-free.dev",
                     webhook_port=9988,
                 )
             }
@@ -265,3 +264,87 @@ class TestSupportServices:
         mock_service.start.assert_awaited_once()
 
         await runner._stop_support_services()
+
+    @pytest.mark.asyncio
+    async def test_start_support_services_patches_assistant_webhooks(self, tmp_path, monkeypatch):
+        config = _make_config(tmp_path)
+        config = config.model_copy(
+            update={
+                "model": TelephonyBridgeConfig(
+                    sip_uri="sip:test@example.com",
+                    telnyx_api_key="telnyx-key",
+                    call_control_app_id="app-123",
+                    call_control_from="+15551234567",
+                    webhook_port=9988,
+                    telnyx_assistant_id="assistant-123",
+                    telnyx_llm="gpt-4.1",
+                )
+            }
+        )
+        runner = _make_runner(config)
+
+        mock_service = MagicMock()
+        mock_service.start = AsyncMock()
+        mock_service.stop = AsyncMock()
+        service_ctor = MagicMock(return_value=mock_service)
+        monkeypatch.setattr("eva.orchestrator.runner.ToolWebhookService", service_ctor)
+
+        manager = MagicMock()
+        manager.get_assistant_model = AsyncMock(return_value="moonshotai/Kimi-K2.5")
+        manager.setup_assistant = AsyncMock()
+        manager.close = AsyncMock()
+        manager_ctor = MagicMock(return_value=manager)
+        monkeypatch.setattr("eva.assistant.telnyx_setup.TelnyxAssistantManager", manager_ctor)
+
+        await runner._start_support_services("https://eva.trycloudflare.com")
+
+        manager.get_assistant_model.assert_awaited_once_with("assistant-123")
+        manager.setup_assistant.assert_awaited_once_with(
+            assistant_id="assistant-123",
+            agent_config=runner.agent,
+            agent_config_path=str(config.agent_config_path),
+            webhook_base_url="https://eva.trycloudflare.com",
+            model="gpt-4.1",
+        )
+        mock_service.set_model_tag.assert_called_once_with("gpt-4.1")
+        assert runner._original_model == "moonshotai/Kimi-K2.5"
+
+    @pytest.mark.asyncio
+    async def test_run_uses_cloudflare_tunnel_for_telephony(self, tmp_path, monkeypatch):
+        config = _make_config(tmp_path)
+        config = config.model_copy(
+            update={
+                "model": TelephonyBridgeConfig(
+                    sip_uri="sip:test@example.com",
+                    telnyx_api_key="telnyx-key",
+                    call_control_app_id="app-123",
+                    call_control_from="+15551234567",
+                    webhook_port=9988,
+                )
+            }
+        )
+        runner = _make_runner(config)
+        records = [_make_record("rec-1")]
+
+        class _FakeTunnel:
+            def __init__(self, *, url: str):
+                self.url = url
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+        tunnel_ctor = MagicMock(return_value=_FakeTunnel(url="https://eva.trycloudflare.com"))
+        monkeypatch.setattr("eva.orchestrator.runner.CloudflareTunnel", tunnel_ctor)
+        runner._run_with_support_services = AsyncMock(return_value=SimpleNamespace(run_id="test-run"))
+
+        result = await runner.run(records)
+
+        assert result.run_id == "test-run"
+        tunnel_ctor.assert_called_once_with(port=9988)
+        runner._run_with_support_services.assert_awaited_once_with(
+            records,
+            webhook_base_url="https://eva.trycloudflare.com",
+        )

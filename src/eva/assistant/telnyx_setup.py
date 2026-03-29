@@ -71,6 +71,23 @@ class TelnyxAssistantManager:
         logger.info(f"Created Telnyx benchmark assistant {assistant_id} for agent {agent_config.id}")
         return assistant_id
 
+    async def setup_assistant(
+        self,
+        assistant_id: str,
+        agent_config: AgentConfig,
+        agent_config_path: str,
+        webhook_base_url: str,
+        model: str | None = None,
+    ) -> None:
+        """PATCH an existing assistant with EVA webhook URLs and optional model."""
+        await self._setup_or_patch_assistant(
+            assistant_id=assistant_id,
+            agent_config=agent_config,
+            agent_config_path=agent_config_path,
+            webhook_base_url=webhook_base_url,
+            model=model,
+        )
+
     async def delete_assistant(self, assistant_id: str) -> None:
         """Delete a Telnyx benchmark assistant."""
         url = f"{self.api_base}/v2/ai/assistants/{assistant_id}"
@@ -113,6 +130,39 @@ class TelnyxAssistantManager:
                     f"{response.status} {json.dumps(payload, sort_keys=True)}",
                 )
         logger.info(f"Updated assistant {assistant_id} model to {model}")
+
+    async def _setup_or_patch_assistant(
+        self,
+        assistant_id: str,
+        agent_config: AgentConfig,
+        agent_config_path: str,
+        webhook_base_url: str,
+        model: str | None = None,
+    ) -> None:
+        """Update an existing assistant so its webhooks point at the current EVA tunnel."""
+        normalized_webhook_base = webhook_base_url.rstrip("/")
+        payload = self._build_assistant_update_payload(
+            agent_config=agent_config,
+            agent_config_path=agent_config_path,
+            webhook_base_url=normalized_webhook_base,
+        )
+        if model:
+            payload["model"] = model
+
+        url = f"{self.api_base}/v2/ai/assistants/{assistant_id}"
+        logger.info(
+            "Patching Telnyx assistant %s to use webhook base URL %s",
+            assistant_id,
+            normalized_webhook_base,
+        )
+        async with self.session.patch(url, json=payload) as response:
+            response_payload = await self._parse_response_json(response)
+            if response.status >= 400:
+                raise RuntimeError(
+                    f"Failed to patch Telnyx assistant {assistant_id}: "
+                    f"{response.status} {json.dumps(response_payload, sort_keys=True)}",
+                )
+        logger.info("Patched Telnyx assistant %s webhook URLs", assistant_id)
 
     async def close(self) -> None:
         """Close the underlying HTTP session if owned by the manager."""
@@ -215,6 +265,26 @@ class TelnyxAssistantManager:
             "dynamic_variables": {
                 "eva_call_id": None,
             },
+        }
+
+    def _build_assistant_update_payload(
+        self,
+        agent_config: AgentConfig,
+        agent_config_path: str,
+        webhook_base_url: str,
+    ) -> dict[str, Any]:
+        """Build the assistant PATCH payload for runtime webhook updates."""
+        payload = self._build_assistant_payload(
+            agent_config=agent_config,
+            agent_config_path=agent_config_path,
+            webhook_base_url=webhook_base_url,
+            model=self.DEFAULT_MODEL,
+            voice=self.DEFAULT_VOICE,
+        )
+        return {
+            "tools": payload["tools"],
+            "dynamic_variables_webhook_url": payload["dynamic_variables_webhook_url"],
+            "dynamic_variables": payload["dynamic_variables"],
         }
 
     @staticmethod

@@ -133,7 +133,6 @@ class TelephonyBridgeConfig(BaseModel):
         description="Caller ID / from number for outbound calls (E.164 format)",
     )
     webhook_port: int = Field(8888, description="Port for the tool webhook service")
-    webhook_base_url: str = Field(description="Public URL for tool webhooks (e.g., ngrok URL)")
     telnyx_assistant_id: str | None = Field(
         None,
         description="Telnyx AI Assistant ID. Required when --model is used to PATCH the assistant model before the run.",
@@ -145,30 +144,6 @@ class TelephonyBridgeConfig(BaseModel):
     )
     stt: str | None = Field(None, description="STT model used for transcript generation")
     stt_params: dict[str, Any] = Field({}, description="Additional STT model parameters (JSON)")
-
-    @field_validator("webhook_base_url")
-    @classmethod
-    def _normalize_webhook_base_url(cls, value: str) -> str:
-        """Normalize webhook_base_url and reject ephemeral ngrok URLs.
-
-        Ephemeral ngrok URLs (e.g., https://a1b2-1-2-3-4.ngrok-free.app) change
-        on every restart, causing silent mismatches with assistant webhook tool
-        configs. Require a stable/static domain instead.
-        """
-        import re
-
-        value = value.rstrip("/")
-        # Reject ephemeral ngrok URLs (hex prefix pattern like a1b2-1-2-3-4.ngrok-free.app)
-        if re.match(r"https?://[0-9a-f]+-[0-9a-f].*\.ngrok", value, re.IGNORECASE):
-            raise ValueError(
-                f"Ephemeral ngrok URL detected: {value}\n"
-                "Ephemeral URLs change on every ngrok restart, causing webhook mismatches.\n"
-                "Use a stable ngrok domain instead:\n"
-                "  1. Go to https://dashboard.ngrok.com/domains\n"
-                "  2. Claim a free static domain (e.g., your-name.ngrok-free.dev)\n"
-                "  3. Start ngrok: ngrok http 8888 --url your-name.ngrok-free.dev"
-            )
-        return value
 
     @field_validator("sip_uri")
     @classmethod
@@ -209,7 +184,6 @@ _TELEPHONY_FIELDS = {
     "call_control_app_id",
     "call_control_from",
     "webhook_port",
-    "webhook_base_url",
     "stt",
     "stt_params",
     "telnyx_assistant_id",

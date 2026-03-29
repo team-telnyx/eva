@@ -2,7 +2,6 @@
 
 import importlib
 import inspect
-import re
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +9,7 @@ import pytest
 import yaml
 
 from eva.assistant.telnyx_setup import TelnyxAssistantManager
-from eva.models.agents import AgentConfig, AgentsConfig
+from eva.models.agents import AgentConfig
 
 
 class _FakeResponse:
@@ -43,6 +42,10 @@ class _FakeSession:
     def delete(self, url: str) -> _FakeResponse:
         self.requests.append(("DELETE", url, None))
         return _FakeResponse(200, {"id": "assistant-123", "deleted": True})
+
+    def patch(self, url: str, json: dict[str, Any]) -> _FakeResponse:
+        self.requests.append(("PATCH", url, json))
+        return _FakeResponse(200, {"id": "assistant-123"})
 
     async def close(self) -> None:
         self.closed = True
@@ -121,6 +124,65 @@ class TestTelnyxAssistantManager:
 
         assert session.requests == [
             ("DELETE", "https://api.telnyx.com/v2/ai/assistants/assistant-123", None),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_setup_assistant_patches_runtime_webhook_urls(self) -> None:
+        session = _FakeSession()
+        manager = TelnyxAssistantManager(api_key="test-key", session=session)  # type: ignore[arg-type]
+
+        await manager.setup_assistant(
+            assistant_id="assistant-123",
+            agent_config=_make_agent_config(),
+            agent_config_path="configs/agents/airline_agent.yaml",
+            webhook_base_url="https://eva.trycloudflare.com/",
+            model="gpt-4.1",
+        )
+
+        assert session.requests == [
+            (
+                "PATCH",
+                "https://api.telnyx.com/v2/ai/assistants/assistant-123",
+                {
+                    "tools": [
+                        {
+                            "type": "webhook",
+                            "timeout_ms": 5000,
+                            "webhook": {
+                                "name": "get_reservation",
+                                "description": "Look up a reservation by confirmation number",
+                                "url": "https://eva.trycloudflare.com/tools/{{eva_call_id}}/get_reservation",
+                                "method": "POST",
+                                "path_parameters": {"type": "object", "properties": {}},
+                                "query_parameters": {"type": "object", "properties": {}},
+                                "body_parameters": {
+                                    "type": "object",
+                                    "properties": {
+                                        "confirmation_number": {
+                                            "type": "string",
+                                            "description": "The booking confirmation number",
+                                        }
+                                    },
+                                    "required": ["confirmation_number"],
+                                },
+                                "headers": [],
+                            },
+                        },
+                        {
+                            "type": "hangup",
+                            "hangup": {
+                                "description": (
+                                    "To be used whenever the conversation has ended "
+                                    "and it would be appropriate to hangup the call."
+                                ),
+                            },
+                        },
+                    ],
+                    "dynamic_variables_webhook_url": "https://eva.trycloudflare.com/dynamic-variables",
+                    "dynamic_variables": {"eva_call_id": None},
+                    "model": "gpt-4.1",
+                },
+            )
         ]
 
     @pytest.mark.asyncio
@@ -236,7 +298,7 @@ class TestTelnyxRegressionGuards:
             if tool["type"] != "webhook":
                 continue
             wh = tool["webhook"]
-            assert "name" in wh, f"Missing 'name' in webhook tool"
+            assert "name" in wh, "Missing 'name' in webhook tool"
             assert "url" in wh, f"Missing 'url' in webhook tool {wh.get('name')}"
             assert "method" in wh, f"Missing 'method' in webhook tool {wh.get('name')}"
             assert "body_parameters" in wh, f"Missing 'body_parameters' in webhook tool {wh.get('name')}"

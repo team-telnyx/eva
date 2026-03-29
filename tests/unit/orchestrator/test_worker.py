@@ -263,8 +263,8 @@ class TestTelephonyStart:
             telnyx_api_key="telnyx-key",
             call_control_app_id="app-123",
             call_control_from="+15551234567",
-            webhook_base_url="https://example.ngrok-free.dev",
         )
+        worker.webhook_base_url = "https://eva.trycloudflare.com"
         worker.tool_webhook_service = MagicMock()
         worker.tool_webhook_service.register_conversation = AsyncMock()
 
@@ -279,6 +279,7 @@ class TestTelephonyStart:
         await worker._start_assistant()
 
         bridge_ctor.assert_called_once()
+        assert bridge_ctor.call_args.kwargs["webhook_base_url"] == "https://eva.trycloudflare.com"
         assert bridge_ctor.call_args.kwargs["telnyx_conversation_lookup"] == (
             worker.tool_webhook_service.get_telnyx_conversation_id
         )
