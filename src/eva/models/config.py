@@ -133,6 +133,11 @@ class TelephonyBridgeConfig(BaseModel):
         description="Caller ID / from number for outbound calls (E.164 format)",
     )
     webhook_port: int = Field(8888, description="Port for the tool webhook service")
+    webhook_base_url: str | None = Field(
+        None,
+        description="Public URL for tool webhooks. If set, uses this URL directly (e.g., a stable ngrok domain). "
+        "If not set, an ephemeral Cloudflare Quick Tunnel is started automatically.",
+    )
     telnyx_assistant_id: str | None = Field(
         None,
         description="Telnyx AI Assistant ID. Required when --model is used to PATCH the assistant model before the run.",
@@ -184,6 +189,7 @@ _TELEPHONY_FIELDS = {
     "call_control_app_id",
     "call_control_from",
     "webhook_port",
+    "webhook_base_url",
     "stt",
     "stt_params",
     "telnyx_assistant_id",

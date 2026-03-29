@@ -166,8 +166,15 @@ class BenchmarkRunner:
             RunResult with final counts and duration
         """
         if isinstance(self.config.model, TelephonyBridgeConfig):
-            async with CloudflareTunnel(port=self.config.model.webhook_port) as tunnel:
-                return await self._run_with_support_services(records, webhook_base_url=tunnel.url)
+            if self.config.model.webhook_base_url:
+                # Use the pre-configured webhook URL (e.g., stable ngrok domain)
+                return await self._run_with_support_services(
+                    records, webhook_base_url=self.config.model.webhook_base_url,
+                )
+            else:
+                # Start an ephemeral Cloudflare Quick Tunnel
+                async with CloudflareTunnel(port=self.config.model.webhook_port) as tunnel:
+                    return await self._run_with_support_services(records, webhook_base_url=tunnel.url)
         return await self._run_with_support_services(records)
 
     async def _run_with_support_services(
