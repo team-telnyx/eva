@@ -95,11 +95,12 @@ class CloudflareTunnel:
                 await process_wait_task
 
     async def _consume_stderr(self) -> None:
-        if self._process is None or self._process.stderr is None:
+        process = self._process
+        if process is None or process.stderr is None:
             return
 
         while True:
-            line = await self._process.stderr.readline()
+            line = await process.stderr.readline()
             if not line:
                 return
 

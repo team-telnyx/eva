@@ -139,23 +139,77 @@ class TelnyxAssistantManager:
         webhook_base_url: str,
         model: str | None = None,
     ) -> None:
-        """Update an existing assistant so its webhooks point at the current EVA tunnel."""
+        """Update an existing assistant so its webhooks point at the current EVA tunnel.
+
+        Fetches the current assistant config and replaces webhook base URLs in-place
+        rather than rebuilding the full tool payload from the agent config. This avoids
+        Telnyx validation issues that can arise from sending a fully reconstructed payload.
+        """
         normalized_webhook_base = webhook_base_url.rstrip("/")
-        payload = self._build_assistant_update_payload(
-            agent_config=agent_config,
-            agent_config_path=agent_config_path,
-            webhook_base_url=normalized_webhook_base,
-        )
+        get_url = f"{self.api_base}/v2/ai/assistants/{assistant_id}"
+
+        # Fetch current assistant config
+        async with self.session.get(get_url) as response:
+            current = await self._parse_response_json(response)
+            if response.status >= 400:
+                raise RuntimeError(
+                    f"Failed to fetch assistant {assistant_id}: "
+                    f"{response.status} {json.dumps(current, sort_keys=True)}",
+                )
+
+        # Find the current webhook base URL from existing tool URLs or DV webhook
+        old_base = None
+        dv_url = current.get("dynamic_variables_webhook_url", "")
+        if dv_url:
+            # Extract base URL: everything before /dynamic-variables
+            idx = dv_url.find("/dynamic-variables")
+            if idx > 0:
+                old_base = dv_url[:idx]
+        if not old_base:
+            for tool in current.get("tools", []):
+                tool_url = tool.get("webhook", {}).get("url", "")
+                if "/tools/" in tool_url:
+                    old_base = tool_url.split("/tools/")[0]
+                    break
+
+        if not old_base:
+            logger.warning(
+                "Could not detect existing webhook base URL on assistant %s; "
+                "falling back to full payload rebuild",
+                assistant_id,
+            )
+            payload = self._build_assistant_update_payload(
+                agent_config=agent_config,
+                agent_config_path=agent_config_path,
+                webhook_base_url=normalized_webhook_base,
+            )
+        else:
+            # Replace old base URL with new one in existing config
+            payload: dict[str, Any] = {}
+            if dv_url:
+                payload["dynamic_variables_webhook_url"] = dv_url.replace(old_base, normalized_webhook_base)
+
+            updated_tools = []
+            for tool in current.get("tools", []):
+                tool_copy = json.loads(json.dumps(tool))  # deep copy
+                wh = tool_copy.get("webhook", {})
+                if "url" in wh:
+                    wh["url"] = wh["url"].replace(old_base, normalized_webhook_base)
+                updated_tools.append(tool_copy)
+            if updated_tools:
+                payload["tools"] = updated_tools
+
         if model:
             payload["model"] = model
 
-        url = f"{self.api_base}/v2/ai/assistants/{assistant_id}"
         logger.info(
-            "Patching Telnyx assistant %s to use webhook base URL %s",
+            "Patching Telnyx assistant %s: webhook base %s → %s%s",
             assistant_id,
+            old_base or "(unknown)",
             normalized_webhook_base,
+            f", model → {model}" if model else "",
         )
-        async with self.session.patch(url, json=payload) as response:
+        async with self.session.patch(get_url, json=payload) as response:
             response_payload = await self._parse_response_json(response)
             if response.status >= 400:
                 raise RuntimeError(

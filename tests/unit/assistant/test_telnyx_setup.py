@@ -43,6 +43,27 @@ class _FakeSession:
         self.requests.append(("DELETE", url, None))
         return _FakeResponse(200, {"id": "assistant-123", "deleted": True})
 
+    def get(self, url: str) -> _FakeResponse:
+        self.requests.append(("GET", url, None))
+        # Return a realistic assistant with existing webhook URLs
+        return _FakeResponse(200, {
+            "id": "assistant-123",
+            "dynamic_variables_webhook_url": "https://old-tunnel.example.com/dynamic-variables",
+            "tools": [
+                {
+                    "type": "webhook",
+                    "webhook": {
+                        "name": "get_reservation",
+                        "url": "https://old-tunnel.example.com/tools/{{eva_call_id}}/get_reservation",
+                    },
+                },
+                {
+                    "type": "hangup",
+                    "hangup": {"description": "End the call."},
+                },
+            ],
+        })
+
     def patch(self, url: str, json: dict[str, Any]) -> _FakeResponse:
         self.requests.append(("PATCH", url, json))
         return _FakeResponse(200, {"id": "assistant-123"})
@@ -139,51 +160,23 @@ class TestTelnyxAssistantManager:
             model="gpt-4.1",
         )
 
-        assert session.requests == [
-            (
-                "PATCH",
-                "https://api.telnyx.com/v2/ai/assistants/assistant-123",
-                {
-                    "tools": [
-                        {
-                            "type": "webhook",
-                            "timeout_ms": 5000,
-                            "webhook": {
-                                "name": "get_reservation",
-                                "description": "Look up a reservation by confirmation number",
-                                "url": "https://eva.trycloudflare.com/tools/{{eva_call_id}}/get_reservation",
-                                "method": "POST",
-                                "path_parameters": {"type": "object", "properties": {}},
-                                "query_parameters": {"type": "object", "properties": {}},
-                                "body_parameters": {
-                                    "type": "object",
-                                    "properties": {
-                                        "confirmation_number": {
-                                            "type": "string",
-                                            "description": "The booking confirmation number",
-                                        }
-                                    },
-                                    "required": ["confirmation_number"],
-                                },
-                                "headers": [],
-                            },
-                        },
-                        {
-                            "type": "hangup",
-                            "hangup": {
-                                "description": (
-                                    "To be used whenever the conversation has ended "
-                                    "and it would be appropriate to hangup the call."
-                                ),
-                            },
-                        },
-                    ],
-                    "dynamic_variables_webhook_url": "https://eva.trycloudflare.com/dynamic-variables",
-                    "dynamic_variables": {"eva_call_id": None},
-                    "model": "gpt-4.1",
-                },
-            )
-        ]
+        # First request is GET to fetch current assistant config
+        assert session.requests[0] == (
+            "GET",
+            "https://api.telnyx.com/v2/ai/assistants/assistant-123",
+            None,
+        )
+        # Second request is PATCH with replaced URLs
+        method, url, payload = session.requests[1]
+        assert method == "PATCH"
+        assert url == "https://api.telnyx.com/v2/ai/assistants/assistant-123"
+        assert payload["dynamic_variables_webhook_url"] == "https://eva.trycloudflare.com/dynamic-variables"
+        assert payload["model"] == "gpt-4.1"
+        # Tool URL should have old base replaced with new
+        webhook_tool = payload["tools"][0]
+        assert webhook_tool["webhook"]["url"] == "https://eva.trycloudflare.com/tools/{{eva_call_id}}/get_reservation"
+        # Hangup tool should be passed through unchanged
+        assert payload["tools"][1]["type"] == "hangup"
 
     @pytest.mark.asyncio
     async def test_close_closes_owned_session(self) -> None:
