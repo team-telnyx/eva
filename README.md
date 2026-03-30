@@ -307,6 +307,10 @@ eva/
 └── website/                   # Project website (React/TypeScript)
 ```
 
+## Contributing
+
+We welcome contributions! Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting a pull request. For larger features, we recommend reaching out first to ensure alignment with our roadmap.
+
 ## Limitations
 
 See [Limitations](docs/limitations.md) for known limitations of the framework and metrics.
