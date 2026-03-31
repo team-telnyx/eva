@@ -85,7 +85,7 @@ class BotToBotAudioInterface(AudioInterface):
             event_logger: Optional ElevenLabsEventLogger for logging audio timing
             conversation_done_callback: Optional callback for signaling conversation end
             codec: Audio codec for the assistant connection. "mulaw" (default) for
-                Pipecat/Twilio-style 8kHz μ-law, "pcm" for 16kHz L16 PCM (telephony bridge).
+                Pipecat/Twilio-style 8kHz μ-law, "pcm" for 16kHz L16 PCM (external agent bridge).
         """
         self.websocket_uri = websocket_uri
         self.conversation_id = conversation_id
@@ -255,7 +255,7 @@ class BotToBotAudioInterface(AudioInterface):
         """Prepare PCM audio for sending to the assistant server.
 
         In mulaw mode (default/Pipecat): downsamples 16kHz→8kHz and converts to μ-law.
-        In pcm mode (telephony bridge): passthrough (16kHz L16 PCM).
+        In pcm mode (external agent bridge): passthrough (16kHz L16 PCM).
         """
         if self.codec == "pcm":
             return pcm_data

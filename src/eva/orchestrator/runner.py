@@ -94,7 +94,7 @@ class BenchmarkRunner:
         return records
 
     async def _start_support_services(self) -> None:
-        """Start optional runner-scoped services (e.g., tool webhook for telephony bridge)."""
+        """Start optional runner-scoped services for external agent providers."""
         if isinstance(self.config.model, ExternalAgentConfig) and self.tool_webhook_service is None:
             self.external_agent_provider = get_provider(self.config.model)
             await self.external_agent_provider.setup()
