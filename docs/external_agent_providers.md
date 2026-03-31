@@ -199,9 +199,9 @@ This section documents every edit made to existing upstream files and the ration
 
 ### Tools (`assistant/tools/airline_tools.py`)
 
-**What changed:** Added `end_call` tool function.
+**What changed:** Added `end_call` tool function (5-line no-op stub).
 
-**Why:** External voice agents use an `end_call` tool to hang up. The tool webhook service intercepts this to trigger transport disconnect, but the tool executor still needs a registered handler.
+**Why:** Hosted voice agents typically have a built-in `end_call` tool that the assistant invokes to terminate the conversation. When the assistant calls `end_call`, the tool webhook service intercepts it *before* it reaches the tool executor — the webhook triggers the transport hangup and signals the bridge to end the session. However, the tool executor validates that every tool name in the assistant's tool list has a registered handler at startup. Without this stub, the executor would reject `end_call` as an unknown tool and the benchmark would fail to start. The stub itself is never actually executed — it exists purely to pass tool registration validation. This could alternatively be solved by making the tool executor aware of "virtual" tools, but a no-op stub is simpler and doesn't require changing the executor's validation logic.
 
 ### Audit log (`assistant/agentic/audit_log.py`)
 
