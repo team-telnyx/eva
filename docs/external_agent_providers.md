@@ -106,9 +106,55 @@ class YourProviderConfig(ExternalAgentConfig):
 
 **That's it.** No changes needed to the bridge, worker, runner, or metrics pipeline.
 
+## Transport Layer
+
+The architecture has two independent abstraction layers that can be mixed and matched:
+
+### `BaseTelephonyTransport` — Audio transport
+
+The low-level ABC that handles bidirectional audio streaming with the external agent:
+
+```python
+class BaseTelephonyTransport(ABC):
+    async def start(self) -> None: ...       # Open the connection
+    async def stop(self) -> None: ...        # Close the connection
+    async def send_audio(self, data: bytes) -> None: ...  # Send PCM audio to agent
+    async def emit_audio(self, data: bytes) -> None: ...  # Receive audio from agent
+```
+
+Different agents connect differently — some via SIP/Call Control (place a phone call), some via WebSocket (connect to an API endpoint), some via WebRTC. Each connectivity method is a different transport implementation.
+
+### `ExternalAgentProvider` — Provider lifecycle
+
+The higher-level ABC that owns the transport and manages the agent's configuration:
+
+- Creates transport instances via `create_transport()`
+- Handles run-level setup/teardown (e.g., configuring the assistant's system prompt and tools via API)
+- Fetches post-call data for metrics enrichment
+
+### Mix-and-match
+
+These layers are **independent**. A provider creates transports, but a transport doesn't know about its provider. This means:
+
+- **Different providers can share a transport.** Any voice agent reachable via SIP could reuse the Telnyx Call Control transport — you'd just need a different provider to handle setup/teardown and post-call enrichment.
+- **One provider could offer multiple transports.** A provider that supports both SIP and WebSocket connectivity could let users choose.
+- **Transports are simple to implement.** A WebSocket-based transport (e.g., for ElevenLabs Conversational AI) just needs `start()`, `stop()`, and `send_audio()` — no telephony knowledge required.
+
 ## Telnyx Provider
 
 The included Telnyx provider (`providers/telnyx/`) serves as the reference implementation.
+
+### Transport: Call Control
+
+The Telnyx transport (`CallControlTransport`) works by:
+
+1. **Placing an outbound call** via the [Telnyx Call Control API](https://developers.telnyx.com/docs/api/v2/call-control) to the assistant's SIP URI
+2. **Receiving a bidirectional media stream** over WebSocket — the assistant's audio comes in, EVA's user simulator audio goes out
+3. **Routing tool calls** via a dynamic variable (`eva_call_id`) injected as a SIP header, which the assistant includes in webhook URLs for deterministic routing to the correct EVA scenario database
+
+Audio format is **L16 16kHz PCM** (the Telnyx Call Control media stream default). The bridge handles sample rate conversion to EVA's 24kHz recording format.
+
+This transport would work for any voice agent reachable via SIP — not just Telnyx AI Assistants.
 
 ### Prerequisites
 
