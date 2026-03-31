@@ -27,6 +27,12 @@ from eva.assistant.external.base import (
     create_segment_transcriber,
 )
 from eva.assistant.external.bridge_vad_observer import BridgeVADObserver
+from eva.assistant.external.metrics_adapter import (
+    build_intended_assistant_messages,
+    build_message_trace,
+    build_metrics_audit_transcript,
+    write_message_trace,
+)
 from eva.assistant.tools.tool_executor import ToolExecutor
 from eva.models.agents import AgentConfig
 from eva.models.config import ExternalAgentConfig
@@ -405,11 +411,17 @@ class ExternalAgentBridgeServer:
                         timestamps.append(ts)
         return timestamps
 
-    async def _write_pipecat_tts_events(self, pipecat_logs_path: Path) -> None:
+    async def _fetch_metrics_assistant_messages(self) -> list[dict[str, Any]]:
         intended_speech: list[dict[str, Any]] = []
         if self._completed_transport is not None:
             intended_speech = await self.provider.fetch_intended_speech(self._completed_transport)
+        return build_intended_assistant_messages(self.audit_log.transcript, intended_speech)
 
+    async def _write_pipecat_tts_events(
+        self,
+        pipecat_logs_path: Path,
+        intended_speech: list[dict[str, Any]],
+    ) -> None:
         audio_start_timestamps = self._read_assistant_audio_start_timestamps()
         for i, item in enumerate(intended_speech):
             if i < len(audio_start_timestamps):
@@ -466,6 +478,10 @@ class ExternalAgentBridgeServer:
             for entry in transcript_entries:
                 transcript_file.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
+        intended_speech = await self._fetch_metrics_assistant_messages()
+        adapted_transcript = build_metrics_audit_transcript(self.audit_log.transcript)
+        self.audit_log.replace_transcript(adapted_transcript)
+
         audit_path = self.output_dir / "audit_log.json"
         self.audit_log.save(audit_path)
 
@@ -480,7 +496,10 @@ class ExternalAgentBridgeServer:
             json.dump(self.get_final_scenario_db(), final_db_file, indent=2, sort_keys=True, default=str)
 
         pipecat_logs_path = self.output_dir / "pipecat_logs.jsonl"
-        await self._write_pipecat_tts_events(pipecat_logs_path)
+        await self._write_pipecat_tts_events(pipecat_logs_path, intended_speech)
+
+        message_trace_path = self.output_dir / "message_trace.jsonl"
+        write_message_trace(message_trace_path, build_message_trace(adapted_transcript, intended_speech))
 
         response_latencies_path = self.output_dir / "response_latencies.json"
         if not response_latencies_path.exists():

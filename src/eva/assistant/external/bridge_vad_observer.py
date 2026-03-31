@@ -1,4 +1,4 @@
-"""Real-time VAD observer for telephony bridge audio streams."""
+"""Real-time VAD observer for external provider bridge audio streams."""
 
 import asyncio
 import json
@@ -98,7 +98,7 @@ class BridgeVADObserver:
         self._elevenlabs_path.write_text("", encoding="utf-8")
         self._elevenlabs_file = open(self._elevenlabs_path, "a", encoding="utf-8")
 
-        # External telephony assistants do not produce local pipecat TTS logs.
+        # External provider sessions do not produce local pipecat TTS logs.
         self._pipecat_logs_path = self.output_dir / "pipecat_logs.jsonl"
         self._pipecat_logs_path.write_text("", encoding="utf-8")
 

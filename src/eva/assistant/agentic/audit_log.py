@@ -391,8 +391,8 @@ class AuditLog:
     def replace_transcript(self, transcript: list[dict[str, Any]]) -> None:
         """Replace the transcript with enriched data from an external source.
 
-        Used by the telephony bridge to replace local tool-only events
-        with full conversation history fetched from the Telnyx Conversations API.
+        Used by the external provider integration to replace local tool-only
+        events with full conversation history fetched from the provider API.
         """
         self.transcript = transcript
 
