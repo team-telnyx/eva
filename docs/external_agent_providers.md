@@ -31,6 +31,16 @@ Benchmark any hosted voice agent API as a black box using EVA's external agent p
 3. The assistant's **tool calls** hit the tool webhook service, which executes them against EVA's deterministic scenario database
 4. EVA records transcripts, audio, tool calls, and metrics — identical output format to Pipecat evaluations
 
+## Why a Client-Side Bridge?
+
+The bridge sits between the user simulator and the external agent, which adds a hop that doesn't exist in production calls. This is intentional:
+
+1. **Metrics compatibility.** EVA's metrics pipeline expects `pipecat_logs.jsonl` format with precise audio timestamps, VAD events, and turn boundaries. The bridge captures these from the raw audio stream — something the external agent's API doesn't expose.
+
+2. **Platform-independent latency measurement.** With the bridge observing both sides of the audio stream, latency measurements (time-to-first-byte, response latency) are taken from a neutral third-party perspective, not self-reported by the provider. This makes cross-provider comparisons fair.
+
+**Important caveat:** Real production calls between a user and an external voice agent do *not* have this intermediary. The bridge adds network hops and processing overhead, so **latency numbers from EVA benchmarks will be higher than real-world latency** for the same provider. EVA measures relative performance across providers under identical conditions — not absolute production latency.
+
 ## Adding a New Provider
 
 Implement `ExternalAgentProvider` (in `src/eva/assistant/external/base.py`):
