@@ -1,0 +1,382 @@
+{
+  "total_records": 128,
+  "data_quality": {
+    "records_with_any_none": 1,
+    "records_with_errors": 1,
+    "records_with_missing": 0,
+    "total_records": 128,
+    "metrics_with_none_scores": {
+      "conversation_progression": 1
+    },
+    "metrics_with_errors": {
+      "conversation_progression": 1
+    },
+    "metrics_with_missing": {},
+    "metrics_with_per_turn_nones": {
+      "agent_speech_fidelity": {
+        "none_turn_rate": 0.0058,
+        "none_turns": 5,
+        "total_turns": 856,
+        "records_affected": 5
+      },
+      "conciseness": {
+        "none_turn_rate": 0.1251,
+        "none_turns": 120,
+        "total_turns": 959,
+        "records_affected": 107
+      }
+    }
+  },
+  "overall_scores": {
+    "EVA-A_pass": {
+      "mean": 0.4609,
+      "count": 128,
+      "none_count": 0,
+      "total_records": 128,
+      "success_rate": 0.4609
+    },
+    "EVA-X_pass": {
+      "mean": 0.6378,
+      "count": 127,
+      "none_count": 1,
+      "total_records": 128,
+      "success_rate": 0.6378
+    },
+    "EVA-A_mean": {
+      "mean": 0.7073,
+      "count": 128,
+      "none_count": 0,
+      "total_records": 128,
+      "success_rate": 0.8047
+    },
+    "EVA-X_mean": {
+      "mean": 0.6326,
+      "count": 128,
+      "none_count": 0,
+      "total_records": 128,
+      "success_rate": 0.8281
+    },
+    "EVA-overall_mean": {
+      "mean": 0.6701,
+      "count": 128,
+      "none_count": 0,
+      "total_records": 128,
+      "success_rate": 0.8438
+    },
+    "EVA-overall_pass": {
+      "mean": 0.3386,
+      "count": 127,
+      "none_count": 1,
+      "total_records": 128,
+      "success_rate": 0.3386
+    },
+    "pass_k": {
+      "EVA-A_pass": {
+        "pass_at_1": 0.4762,
+        "pass_at_k": 0.7143,
+        "pass_power_k_observed": 0.2571,
+        "pass_power_k_theoretical": 0.3259,
+        "k": 3,
+        "count": 35
+      },
+      "EVA-X_pass": {
+        "pass_at_1": 0.6667,
+        "pass_at_k": 0.8824,
+        "pass_power_k_observed": 0.4706,
+        "pass_power_k_theoretical": 0.5316,
+        "k": 3,
+        "count": 34
+      },
+      "EVA-overall_pass": {
+        "pass_at_1": 0.3529,
+        "pass_at_k": 0.5,
+        "pass_power_k_observed": 0.2059,
+        "pass_power_k_theoretical": 0.2549,
+        "k": 3,
+        "count": 34
+      }
+    }
+  },
+  "per_metric": {
+    "agent_speech_fidelity": {
+      "mean": 0.9656,
+      "min": 0.0,
+      "max": 1.0,
+      "count": 128,
+      "none_count": 0,
+      "error_count": 0,
+      "missing_count": 0,
+      "total_records": 128,
+      "per_turn_coverage": {
+        "total_turns": 856,
+        "evaluated_turns": 851,
+        "none_turns": 5,
+        "none_turn_rate": 0.0058,
+        "records_with_none_turns": 5
+      },
+      "pass_k": {
+        "pass_at_1": 0.9167,
+        "pass_at_k": 0.9792,
+        "pass_power_k_observed": 0.8333,
+        "pass_power_k_theoretical": 0.8692,
+        "k": 3,
+        "count": 48
+      }
+    },
+    "faithfulness": {
+      "mean": 0.4297,
+      "min": 0.0,
+      "max": 1.0,
+      "count": 128,
+      "none_count": 0,
+      "error_count": 0,
+      "missing_count": 0,
+      "total_records": 128,
+      "pass_k": {
+        "pass_at_1": 0.6076,
+        "pass_at_k": 0.8333,
+        "pass_power_k_observed": 0.4167,
+        "pass_power_k_theoretical": 0.4813,
+        "k": 3,
+        "count": 48
+      }
+    },
+    "task_completion": {
+      "mean": 0.7266,
+      "min": 0.0,
+      "max": 1.0,
+      "count": 128,
+      "none_count": 0,
+      "error_count": 0,
+      "missing_count": 0,
+      "total_records": 128,
+      "pass_k": {
+        "pass_at_1": 0.7326,
+        "pass_at_k": 0.8542,
+        "pass_power_k_observed": 0.5833,
+        "pass_power_k_theoretical": 0.648,
+        "k": 3,
+        "count": 48
+      }
+    },
+    "authentication_success": {
+      "mean": 0.9375,
+      "min": 0.0,
+      "max": 1.0,
+      "count": 128,
+      "none_count": 0,
+      "error_count": 0,
+      "missing_count": 0,
+      "total_records": 128
+    },
+    "response_speed": {
+      "mean": 2.9275,
+      "min": 1.823,
+      "max": 4.731,
+      "count": 128,
+      "none_count": 0,
+      "error_count": 0,
+      "missing_count": 0,
+      "total_records": 128
+    },
+    "speakability": {
+      "mean": 0.8579,
+      "min": 0.25,
+      "max": 1.0,
+      "count": 128,
+      "none_count": 0,
+      "error_count": 0,
+      "missing_count": 0,
+      "total_records": 128,
+      "per_turn_coverage": {
+        "total_turns": 851,
+        "evaluated_turns": 851,
+        "none_turns": 0,
+        "none_turn_rate": 0.0,
+        "records_with_none_turns": 0
+      }
+    },
+    "stt_wer": {
+      "mean": 0.9932,
+      "min": 0.681,
+      "max": 1.0,
+      "count": 128,
+      "none_count": 0,
+      "error_count": 0,
+      "missing_count": 0,
+      "total_records": 128
+    },
+    "tool_call_validity": {
+      "mean": 0.9961,
+      "min": 0.75,
+      "max": 1.0,
+      "count": 128,
+      "none_count": 0,
+      "error_count": 0,
+      "missing_count": 0,
+      "total_records": 128
+    },
+    "transcription_accuracy_key_entities": {
+      "mean": 0.9966,
+      "min": 0.667,
+      "max": 1.0,
+      "count": 128,
+      "none_count": 0,
+      "error_count": 0,
+      "missing_count": 0,
+      "total_records": 128,
+      "per_turn_coverage": {
+        "total_turns": 836,
+        "evaluated_turns": 836,
+        "none_turns": 0,
+        "none_turn_rate": 0.0,
+        "records_with_none_turns": 0,
+        "not_applicable_turns": 447
+      }
+    },
+    "conciseness": {
+      "mean": 0.554,
+      "min": 0.286,
+      "max": 1.0,
+      "count": 128,
+      "none_count": 0,
+      "error_count": 0,
+      "missing_count": 0,
+      "total_records": 128,
+      "per_turn_coverage": {
+        "total_turns": 959,
+        "evaluated_turns": 839,
+        "none_turns": 120,
+        "none_turn_rate": 0.1251,
+        "records_with_none_turns": 107
+      },
+      "pass_k": {
+        "pass_at_1": 0.7639,
+        "pass_at_k": 0.9375,
+        "pass_power_k_observed": 0.5833,
+        "pass_power_k_theoretical": 0.6555,
+        "k": 3,
+        "count": 48
+      }
+    },
+    "conversation_progression": {
+      "mean": 0.4921,
+      "min": 0.0,
+      "max": 1.0,
+      "count": 127,
+      "none_count": 1,
+      "error_count": 1,
+      "missing_count": 0,
+      "total_records": 128,
+      "pass_k": {
+        "pass_at_1": 0.7872,
+        "pass_at_k": 0.9362,
+        "pass_power_k_observed": 0.5957,
+        "pass_power_k_theoretical": 0.6761,
+        "k": 3,
+        "count": 47
+      }
+    },
+    "turn_taking": {
+      "mean": 0.8502,
+      "min": 0.333,
+      "max": 1.0,
+      "count": 128,
+      "none_count": 0,
+      "error_count": 0,
+      "missing_count": 0,
+      "total_records": 128,
+      "per_turn_coverage": {
+        "total_turns": 728,
+        "evaluated_turns": 728,
+        "none_turns": 0,
+        "none_turn_rate": 0.0,
+        "records_with_none_turns": 0
+      },
+      "pass_k": {
+        "pass_at_1": 0.9757,
+        "pass_at_k": 1.0,
+        "pass_power_k_observed": 0.9375,
+        "pass_power_k_theoretical": 0.9551,
+        "k": 3,
+        "count": 48
+      }
+    }
+  },
+  "metric_errors": {
+    "conversation_progression": {
+      "failed_count": 1,
+      "total_count": 128,
+      "failed_records": [
+        "2.4.2/trial_1"
+      ]
+    }
+  },
+  "pass_at_k_config": {
+    "num_draws": 3,
+    "per_metric_thresholds": {
+      "agent_speech_fidelity": 0.95,
+      "faithfulness": 0.5,
+      "task_completion": 1.0,
+      "conciseness": 0.5,
+      "conversation_progression": 0.5,
+      "turn_taking": 0.5
+    },
+    "exclude_metrics": [
+      "authentication_success",
+      "response_speed",
+      "speakability",
+      "stt_wer",
+      "tool_call_validity",
+      "transcription_accuracy_key_entities"
+    ]
+  },
+  "provenance": {
+    "eva_version": "0.1.0",
+    "simulation_version": "0.1.0",
+    "metrics_version": "0.1.1",
+    "git_commit_sha": "8b5671a58d0f8c2a9303c5c3152eba49edf5b38d",
+    "git_branch": "chore/sync-upstream-main",
+    "git_dirty": false,
+    "git_diff_hash": null,
+    "dataset": {
+      "path": "data/airline_dataset.jsonl",
+      "sha256": "b17954a5ecb94ebb1734b67b5cd8759efa37effd8764eb432b7d1882a9ca4558"
+    },
+    "agent_config": {
+      "path": "configs/agents/airline_agent.yaml",
+      "sha256": "a6b48f60de8f63505ae1a701e621bbf460904d062b02a0d41787710156fbf023"
+    },
+    "tool_module": {
+      "path": "src/eva/assistant/tools/airline_tools.py",
+      "sha256": "bb300543daf47f88ba681c8e970d389af1bb0ecf1a81a695dfe0c7595966b0c8"
+    },
+    "scenario_db": {
+      "path": "data/airline_scenarios",
+      "sha256": "05cf10f41678272420f136551ef0ffcb807bbd2b7018bdc752a37d969eceaaad"
+    },
+    "python_version": "3.11.14 (main, Feb 12 2026, 00:41:29) [Clang 21.1.4 ]",
+    "platform": "macOS-26.3.1-arm64-arm-64bit",
+    "captured_at": "2026-03-30T19:45:21.573425",
+    "judge_prompts": [
+      {
+        "path": "configs/prompts/judge.yaml",
+        "sha256": "3e41af48db2421e02b34b55111ee9ef387ecb356875351c11a6d57586d869189"
+      }
+    ],
+    "metrics_computed": [
+      "agent_speech_fidelity",
+      "authentication_success",
+      "conciseness",
+      "conversation_progression",
+      "faithfulness",
+      "response_speed",
+      "speakability",
+      "stt_wer",
+      "task_completion",
+      "tool_call_validity",
+      "transcription_accuracy_key_entities",
+      "turn_taking"
+    ]
+  }
+}
