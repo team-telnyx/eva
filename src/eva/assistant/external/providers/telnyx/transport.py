@@ -6,19 +6,18 @@ back in a different codec (e.g. PCMU 8kHz). The ``media_format`` in the
 before emitting so the rest of the pipeline always sees uniform L16.
 """
 
+import base64
 import asyncio
+import json
 try:
     import audioop
 except ImportError:
     import audioop_lts as audioop  # Python 3.13+ removed audioop
-import base64
-import json
 from typing import Any
 
 import aiohttp
 
-
-from eva.assistant.telephony_bridge import BaseTelephonyTransport
+from eva.assistant.external.base import BaseTelephonyTransport
 from eva.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -212,7 +211,6 @@ class CallControlTransport(BaseTelephonyTransport):
         self._call_control_id = None
         self._call_session_id = None
         self._call_leg_id = None
-        self._eva_call_id = None
         self._connected_event.clear()
 
     def _convert_outbound_audio(self, pcm_16khz: bytes) -> bytes:

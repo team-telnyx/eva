@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 import yaml
 
-from eva.assistant.telnyx_setup import TelnyxAssistantManager
+from eva.assistant.external.providers.telnyx.setup import TelnyxAssistantManager
 from eva.models.agents import AgentConfig, AgentsConfig
 
 

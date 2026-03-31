@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from eva.assistant.tool_webhook import ToolWebhookService
+from eva.assistant.external.tool_webhook import ToolWebhookService
 
 
 @pytest.fixture
