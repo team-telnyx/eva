@@ -119,11 +119,45 @@ class AudioLLMConfig(BaseModel):
     tts_params: dict[str, Any] = Field({}, description="Additional TTS model parameters (JSON)")
 
 
-class TelephonyBridgeConfig(BaseModel):
-    """Configuration for benchmarking an external voice assistant via telephony (Call Control)."""
+class ExternalAgentConfig(BaseModel):
+    """Base config for evaluating external hosted voice agents."""
 
     model_config = ConfigDict(extra="forbid")
 
+    provider: str = Field(description="Provider name: telnyx, elevenlabs, deepgram, etc.")
+    webhook_port: int = Field(8888, description="Port for the tool webhook service")
+    webhook_base_url: str = Field(description="Public URL for tool webhooks (e.g., ngrok URL)")
+    stt: str | None = Field(None, description="STT model used for transcript generation")
+    stt_params: dict[str, Any] = Field({}, description="Additional STT model parameters (JSON)")
+
+    @field_validator("webhook_base_url")
+    @classmethod
+    def _normalize_webhook_base_url(cls, value: str) -> str:
+        """Normalize webhook_base_url and reject ephemeral ngrok URLs.
+
+        Ephemeral ngrok URLs (e.g., https://a1b2-1-2-3-4.ngrok-free.app) change
+        on every restart, causing silent mismatches with assistant webhook tool
+        configs. Require a stable/static domain instead.
+        """
+        import re
+
+        value = value.rstrip("/")
+        if re.match(r"https?://[0-9a-f]+-[0-9a-f].*\.ngrok", value, re.IGNORECASE):
+            raise ValueError(
+                f"Ephemeral ngrok URL detected: {value}\n"
+                "Ephemeral URLs change on every ngrok restart, causing webhook mismatches.\n"
+                "Use a stable ngrok domain instead:\n"
+                "  1. Go to https://dashboard.ngrok.com/domains\n"
+                "  2. Claim a free static domain (e.g., your-name.ngrok-free.dev)\n"
+                "  3. Start ngrok: ngrok http 8888 --url your-name.ngrok-free.dev"
+            )
+        return value
+
+
+class TelnyxExternalAgentConfig(ExternalAgentConfig):
+    """Config for Telnyx Call Control-based external agent evaluation."""
+
+    provider: Literal["telnyx"] = "telnyx"
     sip_uri: str = Field(description="Target SIP URI or phone number for the external assistant")
     telnyx_api_key: str = Field(description="Telnyx API key for Call Control")
     call_control_app_id: str = Field(
@@ -143,32 +177,6 @@ class TelephonyBridgeConfig(BaseModel):
         description="LLM model to set on the Telnyx assistant before the run (e.g., 'gpt-4.1', 'moonshotai/Kimi-K2.5'). "
         "Requires telnyx_assistant_id.",
     )
-    stt: str | None = Field(None, description="STT model used for transcript generation")
-    stt_params: dict[str, Any] = Field({}, description="Additional STT model parameters (JSON)")
-
-    @field_validator("webhook_base_url")
-    @classmethod
-    def _normalize_webhook_base_url(cls, value: str) -> str:
-        """Normalize webhook_base_url and reject ephemeral ngrok URLs.
-
-        Ephemeral ngrok URLs (e.g., https://a1b2-1-2-3-4.ngrok-free.app) change
-        on every restart, causing silent mismatches with assistant webhook tool
-        configs. Require a stable/static domain instead.
-        """
-        import re
-
-        value = value.rstrip("/")
-        # Reject ephemeral ngrok URLs (hex prefix pattern like a1b2-1-2-3-4.ngrok-free.app)
-        if re.match(r"https?://[0-9a-f]+-[0-9a-f].*\.ngrok", value, re.IGNORECASE):
-            raise ValueError(
-                f"Ephemeral ngrok URL detected: {value}\n"
-                "Ephemeral URLs change on every ngrok restart, causing webhook mismatches.\n"
-                "Use a stable ngrok domain instead:\n"
-                "  1. Go to https://dashboard.ngrok.com/domains\n"
-                "  2. Claim a free static domain (e.g., your-name.ngrok-free.dev)\n"
-                "  3. Start ngrok: ngrok http 8888 --url your-name.ngrok-free.dev"
-            )
-        return value
 
     @field_validator("sip_uri")
     @classmethod
@@ -181,7 +189,7 @@ class TelephonyBridgeConfig(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def _validate_model_requires_assistant_id(self) -> "TelephonyBridgeConfig":
+    def _validate_model_requires_assistant_id(self) -> "TelnyxExternalAgentConfig":
         """Ensure telnyx_assistant_id is set when model is specified."""
         if self.telnyx_llm and not self.telnyx_assistant_id:
             raise ValueError(
@@ -189,6 +197,9 @@ class TelephonyBridgeConfig(BaseModel):
                 "Set EVA_MODEL__TELNYX_ASSISTANT_ID or --telnyx-assistant-id."
             )
         return self
+
+
+TelephonyBridgeConfig = TelnyxExternalAgentConfig
 
 
 _PIPELINE_FIELDS = {
@@ -203,7 +214,22 @@ _PIPELINE_FIELDS = {
 }
 _S2S_FIELDS = {"s2s", "s2s_params"}
 _AUDIO_LLM_FIELDS = {"audio_llm", "audio_llm_params", "tts", "tts_params"}
-_TELEPHONY_FIELDS = {
+_EXTERNAL_AGENT_FIELDS = {
+    "provider",
+    "sip_uri",
+    "telnyx_api_key",
+    "call_control_app_id",
+    "call_control_from",
+    "webhook_port",
+    "webhook_base_url",
+    "stt",
+    "stt_params",
+    "telnyx_assistant_id",
+    "telnyx_llm",
+}
+
+
+_TELNYX_FIELDS = {
     "sip_uri",
     "telnyx_api_key",
     "call_control_app_id",
@@ -220,7 +246,7 @@ _TELEPHONY_FIELDS = {
 def _model_config_discriminator(data: Any) -> str:
     """Discriminate which pipeline config type to use based on unique fields."""
     if isinstance(data, dict):
-        if any(
+        if data.get("provider") or any(
             field in data
             for field in (
                 "sip_uri",
@@ -228,14 +254,14 @@ def _model_config_discriminator(data: Any) -> str:
                 "call_control_from",
             )
         ):
-            return "telephony_bridge"
+            return "external_agent"
         if "audio_llm" in data:
             return "audio_llm"
         if "s2s" in data:
             return "s2s"
         return "pipeline"
-    if isinstance(data, TelephonyBridgeConfig):
-        return "telephony_bridge"
+    if isinstance(data, ExternalAgentConfig):
+        return "external_agent"
     if isinstance(data, AudioLLMConfig):
         return "audio_llm"
     if isinstance(data, SpeechToSpeechConfig):
@@ -271,14 +297,14 @@ def _strip_other_mode_fields(data: dict) -> dict:
     has_llm = bool(data.get("llm") or data.get("llm_model"))
     has_s2s = bool(data.get("s2s"))
     has_audio_llm = bool(data.get("audio_llm"))
-    has_telephony = bool(data.get("sip_uri") or data.get("call_control_app_id"))
+    has_external_agent = bool(data.get("provider") or data.get("sip_uri") or data.get("call_control_app_id"))
     active = [
         name
         for flag, name in [
             (has_llm, "EVA_MODEL__LLM"),
             (has_s2s, "EVA_MODEL__S2S"),
             (has_audio_llm, "EVA_MODEL__AUDIO_LLM"),
-            (has_telephony, "EVA_MODEL__SIP_URI"),
+            (has_external_agent, "EVA_MODEL__SIP_URI"),
         ]
         if flag
     ]
@@ -294,8 +320,13 @@ def _strip_other_mode_fields(data: dict) -> dict:
         return {k: v for k, v in data.items() if k in _AUDIO_LLM_FIELDS}
     if mode == "s2s":
         return {k: v for k, v in data.items() if k in _S2S_FIELDS}
-    if mode == "telephony_bridge":
-        return {k: v for k, v in data.items() if k in _TELEPHONY_FIELDS}
+    if mode == "external_agent":
+        copied = dict(data)
+        if "provider" not in copied and "sip_uri" in copied:
+            copied["provider"] = "telnyx"
+        if copied.get("provider") == "telnyx":
+            return {k: v for k, v in copied.items() if k in _EXTERNAL_AGENT_FIELDS or k in _TELNYX_FIELDS}
+        return {k: v for k, v in copied.items() if k in _EXTERNAL_AGENT_FIELDS}
     # pipeline: keep pipeline fields + any legacy fields the model_validator handles
     return {k: v for k, v in data.items() if k in _PIPELINE_FIELDS}
 
@@ -305,7 +336,7 @@ ModelConfigUnion = Annotated[
     Annotated[PipelineConfig, Tag("pipeline")]
     | Annotated[SpeechToSpeechConfig, Tag("s2s")]
     | Annotated[AudioLLMConfig, Tag("audio_llm")]
-    | Annotated[TelephonyBridgeConfig, Tag("telephony_bridge")],
+    | Annotated[TelnyxExternalAgentConfig, Tag("external_agent")],
     Discriminator(_model_config_discriminator),
 ]
 

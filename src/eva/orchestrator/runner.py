@@ -7,15 +7,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from eva.assistant.external import ExternalAgentProvider, get_provider
+from eva.assistant.external.tool_webhook import ToolWebhookService
 from eva.metrics.runner import MetricsRunner, MetricsRunResult
 from eva.models.agents import AgentConfig
-from eva.models.config import PipelineConfig, RunConfig, TelephonyBridgeConfig
+from eva.models.config import ExternalAgentConfig, PipelineConfig, RunConfig
 from eva.models.record import EvaluationRecord
 from eva.models.results import ConversationResult, RunResult
 from eva.orchestrator.port_pool import PortPool
 from eva.orchestrator.validation_runner import ValidationRunner
 from eva.orchestrator.worker import ConversationWorker
-from eva.assistant.tool_webhook import ToolWebhookService
 from eva.utils.conversation_checks import check_conversation_finished, find_records_with_llm_generic_error
 from eva.utils.logging import get_logger
 from eva.utils.provenance import capture_provenance, resolve_tool_module_file
@@ -56,7 +57,7 @@ class BenchmarkRunner:
         self._results: list[ConversationResult] = []
         self._failed_record_ids: list[str] = []
         self.tool_webhook_service: ToolWebhookService | None = None
-        self._original_model: str | None = None
+        self.external_agent_provider: ExternalAgentProvider | None = None
 
     def _load_agent_config(self) -> AgentConfig:
         """Load single agent configuration."""
@@ -94,46 +95,24 @@ class BenchmarkRunner:
 
     async def _start_support_services(self) -> None:
         """Start optional runner-scoped services (e.g., tool webhook for telephony bridge)."""
-        if isinstance(self.config.model, TelephonyBridgeConfig) and self.tool_webhook_service is None:
-            self.tool_webhook_service = ToolWebhookService(port=self.config.model.webhook_port)
+        if isinstance(self.config.model, ExternalAgentConfig) and self.tool_webhook_service is None:
+            self.external_agent_provider = get_provider(self.config.model)
+            await self.external_agent_provider.setup()
+            self.tool_webhook_service = ToolWebhookService(
+                port=self.config.model.webhook_port,
+                provider=self.external_agent_provider,
+            )
             await self.tool_webhook_service.start()
-
-            # PATCH assistant model if --model is set
-            bridge_config = self.config.model
-            if bridge_config.telnyx_llm and bridge_config.telnyx_assistant_id:
-                from eva.assistant.telnyx_setup import TelnyxAssistantManager
-
-                manager = TelnyxAssistantManager(api_key=bridge_config.telnyx_api_key)
-                try:
-                    self._original_model = await manager.get_assistant_model(bridge_config.telnyx_assistant_id)
-                    await manager.update_assistant_model(bridge_config.telnyx_assistant_id, bridge_config.telnyx_llm)
-                finally:
-                    await manager.close()
-
-                # Tag all conversations with the model
-                self.tool_webhook_service.set_model_tag(bridge_config.telnyx_llm)
 
     async def _stop_support_services(self) -> None:
         """Stop optional runner-scoped services."""
-        # Restore original assistant model if we changed it
-        if isinstance(self.config.model, TelephonyBridgeConfig):
-            bridge_config = self.config.model
-            original_model = getattr(self, "_original_model", None)
-            if original_model and bridge_config.telnyx_assistant_id:
-                from eva.assistant.telnyx_setup import TelnyxAssistantManager
-
-                manager = TelnyxAssistantManager(api_key=bridge_config.telnyx_api_key)
-                try:
-                    await manager.update_assistant_model(bridge_config.telnyx_assistant_id, original_model)
-                    logger.info(f"Restored assistant model to {original_model}")
-                except Exception:
-                    logger.warning(f"Failed to restore assistant model to {original_model}", exc_info=True)
-                finally:
-                    await manager.close()
-
         if self.tool_webhook_service is not None:
             await self.tool_webhook_service.stop()
             self.tool_webhook_service = None
+
+        if self.external_agent_provider is not None:
+            await self.external_agent_provider.teardown()
+            self.external_agent_provider = None
 
     async def run(self, records: list[EvaluationRecord]) -> RunResult:
         """Run all records with validation and reruns.
@@ -191,16 +170,18 @@ class BenchmarkRunner:
                 "tts_alias": tts_params.get("alias"),
                 "llm": self.config.model.llm,
             }
-        elif isinstance(self.config.model, TelephonyBridgeConfig):
+        elif isinstance(self.config.model, ExternalAgentConfig):
             self.config.resolved_models = {
-                "transport": "call_control",
+                "provider": self.config.model.provider,
                 "sip_uri": self.config.model.sip_uri,
                 "webhook_base_url": self.config.model.webhook_base_url,
-                "call_control_app_id": self.config.model.call_control_app_id,
-                "call_control_from": self.config.model.call_control_from,
                 "stt_provider": self.config.model.stt,
                 "stt_model": self.config.model.stt_params.get("model"),
             }
+            if hasattr(self.config.model, "call_control_app_id"):
+                self.config.resolved_models["call_control_app_id"] = self.config.model.call_control_app_id
+            if hasattr(self.config.model, "call_control_from"):
+                self.config.resolved_models["call_control_from"] = self.config.model.call_control_from
 
         config_path = self.output_dir / "config.json"
         config_path.write_text(self.config.model_dump_json(indent=2))
@@ -463,6 +444,7 @@ class BenchmarkRunner:
                 port=port,
                 output_id=output_id,
                 tool_webhook_service=self.tool_webhook_service,
+                provider=self.external_agent_provider,
             )
 
             # Run conversation

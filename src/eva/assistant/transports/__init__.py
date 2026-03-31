@@ -1,6 +1,6 @@
 """Transport implementations for telephony bridge integrations."""
 
-from eva.assistant.transports.call_control import CallControlTransport
+from eva.assistant.external.providers.telnyx.transport import CallControlTransport
 
 __all__ = [
     "CallControlTransport",
