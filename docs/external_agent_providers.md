@@ -31,6 +31,16 @@ Benchmark any hosted voice agent API as a black box using EVA's external agent p
 3. The assistant's **tool calls** hit the tool webhook service, which executes them against EVA's deterministic scenario database
 4. EVA records transcripts, audio, tool calls, and metrics — identical output format to Pipecat evaluations
 
+## Why a Client-Side Bridge?
+
+The bridge sits between the user simulator and the external agent, which adds a hop that doesn't exist in production calls. This is intentional:
+
+1. **Metrics compatibility.** EVA's metrics pipeline expects `pipecat_logs.jsonl` format with precise audio timestamps, VAD events, and turn boundaries. The bridge captures these from the raw audio stream — something the external agent's API doesn't expose.
+
+2. **Platform-independent latency measurement.** With the bridge observing both sides of the audio stream, latency measurements (time-to-first-byte, response latency) are taken from a neutral third-party perspective, not self-reported by the provider. This makes cross-provider comparisons fair.
+
+**Important caveat:** Real production calls between a user and an external voice agent do *not* have this intermediary. The bridge adds network hops and processing overhead, so **latency numbers from EVA benchmarks will be higher than real-world latency** for the same provider. EVA measures relative performance across providers under identical conditions — not absolute production latency.
+
 ## Adding a New Provider
 
 Implement `ExternalAgentProvider` (in `src/eva/assistant/external/base.py`):
@@ -199,9 +209,9 @@ This section documents every edit made to existing upstream files and the ration
 
 ### Tools (`assistant/tools/airline_tools.py`)
 
-**What changed:** Added `end_call` tool function (5-line no-op stub).
+**What changed:** Added `end_call` tool function.
 
-**Why:** Hosted voice agents typically have a built-in `end_call` tool that the assistant invokes to terminate the conversation. When the assistant calls `end_call`, the tool webhook service intercepts it *before* it reaches the tool executor — the webhook triggers the transport hangup and signals the bridge to end the session. However, the tool executor validates that every tool name in the assistant's tool list has a registered handler at startup. Without this stub, the executor would reject `end_call` as an unknown tool and the benchmark would fail to start. The stub itself is never actually executed — it exists purely to pass tool registration validation. This could alternatively be solved by making the tool executor aware of "virtual" tools, but a no-op stub is simpler and doesn't require changing the executor's validation logic.
+**Why:** External voice agents use an `end_call` tool to hang up. The tool webhook service intercepts this to trigger transport disconnect, but the tool executor still needs a registered handler.
 
 ### Audit log (`assistant/agentic/audit_log.py`)
 
