@@ -10,7 +10,9 @@ import pytest
 import yaml
 from fastapi import WebSocketDisconnect
 
-from eva.assistant.telephony_bridge import BaseTelephonyTransport, TelephonyBridgeConfig, TelephonyBridgeServer, _SessionState
+from eva.assistant.external.base import BaseTelephonyTransport
+from eva.assistant.external.bridge import ExternalAgentBridgeServer, _SessionState
+from eva.models.config import TelnyxExternalAgentConfig
 
 
 class _FakeObserver:
@@ -146,7 +148,7 @@ def _make_bridge(
     *,
     transport: _MockTransport | None = None,
     observer: _FakeObserver | None = None,
-) -> tuple[TelephonyBridgeServer, _MockTransport, _FakeObserver]:
+) -> tuple[ExternalAgentBridgeServer, _MockTransport, _FakeObserver]:
     agent_config_path = tmp_path / "agent.yaml"
     scenario_db_path = tmp_path / "scenario.json"
     _write_agent_config(agent_config_path)
@@ -159,9 +161,9 @@ def _make_bridge(
     )
     observer_instance = observer or _FakeObserver(tmp_path / "output")
 
-    bridge = TelephonyBridgeServer(
+    bridge = ExternalAgentBridgeServer(
         current_date_time="2026-01-01 00:00 UTC",
-        bridge_config=TelephonyBridgeConfig(
+        bridge_config=TelnyxExternalAgentConfig(
             sip_uri="sip:test@example.com",
             telnyx_api_key="telnyx-key",
             call_control_app_id="app-123",
@@ -182,7 +184,7 @@ def _make_bridge(
     return bridge, transport_instance, observer_instance
 
 
-class TestTelephonyBridgeServer:
+class TestExternalAgentBridgeServer:
     @pytest.mark.asyncio
     async def test_handles_websocket_audio_bridge_and_finalizes_observer(self, tmp_path: Path):
         bridge, transport, observer = _make_bridge(tmp_path)
@@ -376,7 +378,7 @@ class TestTelephonyBridgeServer:
 
     def test_default_transport_factory_creates_call_control_transport(self, tmp_path: Path, monkeypatch):
         bridge, _transport, _observer = _make_bridge(tmp_path)
-        bridge.bridge_config = TelephonyBridgeConfig(
+        bridge.bridge_config = TelnyxExternalAgentConfig(
             sip_uri="sip:test@example.com",
             telnyx_api_key="telnyx-key",
             call_control_app_id="app-123",

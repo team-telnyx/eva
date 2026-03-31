@@ -1,3 +1,5 @@
-"""Backward-compatible exports for the Telnyx Call Control transport."""
-
-from eva.assistant.external.providers.telnyx.transport import *  # noqa: F403
+# Removed — implementation moved to eva.assistant.external.providers.telnyx.transport
+raise ImportError(
+    "eva.assistant.transports.call_control has been replaced by "
+    "eva.assistant.external.providers.telnyx.transport. Update your imports."
+)

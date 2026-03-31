@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 from aiohttp import web
 import pytest
 
-from eva.assistant.transports.call_control import CallControlTransport, _active_transports
+from eva.assistant.external.providers.telnyx.transport import CallControlTransport, _active_transports
 
 
 class _FakeWebSocket:

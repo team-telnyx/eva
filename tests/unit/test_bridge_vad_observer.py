@@ -7,7 +7,7 @@ import pytest
 from pipecat.audio.vad.vad_analyzer import VADState
 
 from eva.assistant.agentic.audit_log import AuditLog
-from eva.assistant.bridge_vad_observer import (
+from eva.assistant.external.bridge_vad_observer import (
     TURN_MERGE_GAP_SECONDS,
     BridgeVADObserver,
 )

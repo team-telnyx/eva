@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from eva.models.config import PipelineConfig, RunConfig, TelephonyBridgeConfig
+from eva.models.config import PipelineConfig, RunConfig, TelnyxExternalAgentConfig
 from eva.models.results import ConversationResult
 from eva.orchestrator.runner import BenchmarkRunner
 from tests.unit.conftest import make_evaluation_record
@@ -208,7 +208,7 @@ class TestSupportServices:
         config = _make_config(tmp_path)
         config = config.model_copy(
             update={
-                "model": TelephonyBridgeConfig(
+                "model": TelnyxExternalAgentConfig(
                     sip_uri="sip:test@example.com",
                     telnyx_api_key="telnyx-key",
                     call_control_app_id="app-123",
@@ -240,7 +240,7 @@ class TestSupportServices:
         config = _make_config(tmp_path)
         config = config.model_copy(
             update={
-                "model": TelephonyBridgeConfig(
+                "model": TelnyxExternalAgentConfig(
                     sip_uri="sip:test@example.com",
                     telnyx_api_key="telnyx-key",
                     call_control_app_id="app-123",

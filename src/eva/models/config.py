@@ -199,8 +199,6 @@ class TelnyxExternalAgentConfig(ExternalAgentConfig):
         return self
 
 
-TelephonyBridgeConfig = TelnyxExternalAgentConfig
-
 
 _PIPELINE_FIELDS = {
     "llm",

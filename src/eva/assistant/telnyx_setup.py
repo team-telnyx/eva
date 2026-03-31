@@ -1,5 +1,5 @@
-"""Backward-compatible exports for Telnyx setup helpers."""
-
-from eva.assistant.external.providers.telnyx.setup import TelnyxAssistantManager
-
-__all__ = ["TelnyxAssistantManager"]
+# Removed — implementation moved to eva.assistant.external.providers.telnyx.setup
+raise ImportError(
+    "eva.assistant.telnyx_setup has been replaced by eva.assistant.external.providers.telnyx.setup. "
+    "Update your imports."
+)

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from eva.models.config import TelephonyBridgeConfig
+from eva.models.config import TelnyxExternalAgentConfig
 from eva.orchestrator.worker import ConversationWorker, _percentile
 
 
@@ -258,7 +258,7 @@ class TestTelephonyStart:
     @pytest.mark.asyncio
     async def test_start_assistant_uses_telephony_bridge_and_registers_webhook(self, tmp_path, monkeypatch):
         worker = _make_worker(tmp_path)
-        worker.config.model = TelephonyBridgeConfig(
+        worker.config.model = TelnyxExternalAgentConfig(
             sip_uri="sip:test@example.com",
             telnyx_api_key="telnyx-key",
             call_control_app_id="app-123",
@@ -274,7 +274,7 @@ class TestTelephonyStart:
         mock_bridge.audit_log = MagicMock()
 
         bridge_ctor = MagicMock(return_value=mock_bridge)
-        monkeypatch.setattr("eva.orchestrator.worker.TelephonyBridgeServer", bridge_ctor)
+        monkeypatch.setattr("eva.orchestrator.worker.ExternalAgentBridgeServer", bridge_ctor)
 
         await worker._start_assistant()
 

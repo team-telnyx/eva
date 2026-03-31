@@ -532,11 +532,8 @@ class ExternalAgentBridgeServer:
         return self.tool_handler.db
 
 
-TelephonyBridgeServer = ExternalAgentBridgeServer
-
 __all__ = [
     "ExternalAgentBridgeServer",
-    "TelephonyBridgeServer",
     "_SessionState",
     "pcm16k_to_pcm24k",
     "pcm_to_wav_bytes",

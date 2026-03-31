@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 from pydantic_settings import SettingsError
 
-from eva.models.config import RunConfig, SpeechToSpeechConfig, TelephonyBridgeConfig
+from eva.models.config import RunConfig, SpeechToSpeechConfig, TelnyxExternalAgentConfig
 
 MODEL_LIST = [
     {
@@ -275,7 +275,7 @@ class TestRunConfig:
             }
         )
 
-        assert isinstance(config.model, TelephonyBridgeConfig)
+        assert isinstance(config.model, TelnyxExternalAgentConfig)
         assert config.model.sip_uri == "sip:assistant@example.com"
         assert config.model.webhook_port == 9999
         assert config.model.webhook_base_url == "https://example.ngrok-free.dev"
@@ -294,7 +294,7 @@ class TestRunConfig:
             }
         )
 
-        assert isinstance(config.model, TelephonyBridgeConfig)
+        assert isinstance(config.model, TelnyxExternalAgentConfig)
         assert config.model.sip_uri == "sip:assistant@example.com"
         assert config.model.telnyx_api_key == "telnyx-key"
         assert config.model.call_control_app_id == "app-123"

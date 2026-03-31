@@ -1,5 +1,5 @@
-"""Backward-compatible exports for the external tool webhook service."""
-
-from eva.assistant.external.tool_webhook import ToolWebhookService
-
-__all__ = ["ToolWebhookService"]
+# Removed — implementation moved to eva.assistant.external.tool_webhook
+raise ImportError(
+    "eva.assistant.tool_webhook has been replaced by eva.assistant.external.tool_webhook. "
+    "Update your imports."
+)
